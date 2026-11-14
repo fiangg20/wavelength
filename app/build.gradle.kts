@@ -14,8 +14,14 @@ android {
         applicationId = "com.fiangg20.wavelength"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.0"
+
+        // yt-dlp ships Python and ffmpeg as native libraries, so keep to the one ABI nearly
+        // every modern phone uses. Add "armeabi-v7a" here for old 32-bit phones.
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {
@@ -36,6 +42,10 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        // yt-dlp's Python and ffmpeg must be extracted to disk to run.
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 }
@@ -65,4 +75,8 @@ dependencies {
     implementation("androidx.media3:media3-session:1.8.0")
     implementation("com.google.guava:guava:33.4.0-android")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+
+    // yt-dlp + ffmpeg running on the device
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
 }

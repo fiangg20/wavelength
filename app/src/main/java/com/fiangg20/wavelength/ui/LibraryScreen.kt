@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 
 package com.fiangg20.wavelength.ui
 
@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Pause
@@ -84,10 +88,12 @@ fun LibraryScreen(
     tab: Int,
     onTab: (Int) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenDownloads: () -> Unit,
     onOpenDetail: (String) -> Unit,
     bottomPad: Dp,
 ) {
     val tracks by vm.tracks.collectAsStateWithLifecycle()
+    val liked by vm.liked.collectAsStateWithLifecycle()
     val albums by vm.albums.collectAsStateWithLifecycle()
     val artists by vm.artists.collectAsStateWithLifecycle()
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -141,6 +147,16 @@ fun LibraryScreen(
             }
             Spacer(Modifier.width(8.dp))
             ExpressiveButton(
+                onClick = onOpenDownloads,
+                modifier = Modifier.size(52.dp),
+                containerColor = scheme.surfaceContainerHigh,
+                contentColor = scheme.onSurface,
+                restCorner = 26.dp,
+            ) {
+                Icon(Icons.Rounded.Download, contentDescription = "Downloader")
+            }
+            Spacer(Modifier.width(8.dp))
+            ExpressiveButton(
                 onClick = onOpenSettings,
                 modifier = Modifier.size(52.dp),
                 containerColor = scheme.surfaceContainerHigh,
@@ -152,7 +168,7 @@ fun LibraryScreen(
         }
 
         ConnectedChoice(
-            options = listOf("Songs", "Albums", "Artists"),
+            options = listOf("Songs", "Albums", "Artists", "Liked"),
             selected = tab,
             onSelect = onTab,
             modifier = Modifier.padding(horizontal = 20.dp),
@@ -204,7 +220,21 @@ fun LibraryScreen(
                     vm = vm,
                 )
                 1 -> AlbumGrid(albums, bottomPad) { onOpenDetail("album:${it.id}") }
-                else -> ArtistList(artists, bottomPad) { onOpenDetail("artist:${it.name}") }
+                2 -> ArtistList(artists, bottomPad) { onOpenDetail("artist:${it.name}") }
+                else -> if (liked.isEmpty()) {
+                    EmptyState(message = "No liked songs yet. Long-press a song to like it.")
+                } else {
+                    SongList(
+                        tracks = liked,
+                        ui = ui,
+                        bottomPad = bottomPad,
+                        onPlay = { vm.playQueue(liked, it) },
+                        onPlayAll = { vm.playQueue(liked, 0, shuffle = false) },
+                        onShuffle = { vm.playShuffled(liked) },
+                        vm = vm,
+                        showSort = false,
+                    )
+                }
             }
         }
     }
@@ -243,7 +273,9 @@ private fun SongList(
     onPlayAll: () -> Unit,
     onShuffle: () -> Unit,
     vm: PlayerViewModel,
+    showSort: Boolean = true,
 ) {
+    val favs by vm.favorites.collectAsStateWithLifecycle()
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = bottomPad),
@@ -257,17 +289,24 @@ private fun SongList(
                     modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
                 )
                 PlayShuffleRow(onPlayAll = onPlayAll, onShuffle = onShuffle) {
-                    SortMenu(vm)
+                    if (showSort) SortMenu(vm)
                 }
                 Spacer(Modifier.height(8.dp))
             }
         }
         itemsIndexed(tracks, key = { _, t -> t.id }) { index, t ->
+            val isLiked = t.id in favs
             TrackRow(
                 track = t,
                 active = ui.current?.id == t.id,
                 playing = ui.isPlaying,
                 onClick = { onPlay(index) },
+                actions = TrackActions(
+                    liked = isLiked,
+                    onPlayNext = { vm.playNext(t) },
+                    onAddToQueue = { vm.addToQueue(t) },
+                    onToggleLike = { vm.toggleFavorite(t.id) },
+                ),
             )
         }
     }
@@ -329,7 +368,7 @@ private fun SortMenu(vm: PlayerViewModel) {
             Icon(Icons.Rounded.FilterList, null)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            listOf("Title", "Artist", "Album", "Recently added").forEachIndexed { i, label ->
+            listOf("Title", "Artist", "Album", "Recently added", "Length").forEachIndexed { i, label ->
                 DropdownMenuItem(
                     text = { Text(label) },
                     onClick = {
@@ -353,13 +392,23 @@ private fun SortMenu(vm: PlayerViewModel) {
     }
 }
 
+/** What the long-press menu on a song can do. */
+class TrackActions(
+    val liked: Boolean,
+    val onPlayNext: () -> Unit,
+    val onAddToQueue: () -> Unit,
+    val onToggleLike: () -> Unit,
+)
+
 @Composable
 fun TrackRow(
     track: Track,
     active: Boolean,
     playing: Boolean,
     onClick: () -> Unit,
+    actions: TrackActions? = null,
 ) {
+    var menu by remember { mutableStateOf(false) }
     val prefs = LocalPrefs.current
     val scheme = MaterialTheme.colorScheme
     val bg by animateColorAsState(
@@ -371,12 +420,16 @@ fun TrackRow(
     val titleColor = if (active) scheme.onSecondaryContainer else scheme.onSurface
     val subColor = if (active) scheme.onSecondaryContainer.copy(alpha = 0.75f) else scheme.onSurfaceVariant
 
+    Box {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
             .background(bg)
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = if (actions != null) ({ menu = true }) else null,
+            )
             .padding(horizontal = 12.dp, vertical = vPad),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -406,6 +459,15 @@ fun TrackRow(
             )
         }
         Spacer(Modifier.width(12.dp))
+        if (actions != null && actions.liked) {
+            Icon(
+                Icons.Rounded.Favorite,
+                contentDescription = null,
+                tint = scheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+        }
         if (active) {
             EqBars(color = scheme.onSecondaryContainer, animate = playing)
         } else {
@@ -416,6 +478,35 @@ fun TrackRow(
             )
         }
     }
+    if (actions != null) {
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(
+                text = { Text("Play next") },
+                onClick = {
+                    actions.onPlayNext()
+                    menu = false
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Add to queue") },
+                onClick = {
+                    actions.onAddToQueue()
+                    menu = false
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(if (actions.liked) "Remove from liked" else "Like") },
+                leadingIcon = {
+                    Icon(if (actions.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, null)
+                },
+                onClick = {
+                    actions.onToggleLike()
+                    menu = false
+                },
+            )
+        }
+    }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -424,8 +515,13 @@ fun TrackRow(
 
 @Composable
 private fun AlbumGrid(albums: List<Album>, bottomPad: Dp, onClick: (Album) -> Unit) {
+    val cell = when (LocalPrefs.current.albumGrid) {
+        0 -> 110.dp
+        2 -> 190.dp
+        else -> 150.dp
+    }
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(150.dp),
+        columns = GridCells.Adaptive(cell),
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = bottomPad),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -671,23 +767,27 @@ fun MiniPlayer(
             ) {
                 Icon(if (ui.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null)
             }
-            Spacer(Modifier.width(4.dp))
-            ExpressiveButton(
-                onClick = onNext,
-                modifier = Modifier.size(48.dp),
-                containerColor = Color.Transparent,
-                contentColor = scheme.onPrimaryContainer,
-                restCorner = 24.dp,
-            ) {
-                Icon(Icons.Rounded.SkipNext, null)
+            if (prefs.miniSkip) {
+                Spacer(Modifier.width(4.dp))
+                ExpressiveButton(
+                    onClick = onNext,
+                    modifier = Modifier.size(48.dp),
+                    containerColor = Color.Transparent,
+                    contentColor = scheme.onPrimaryContainer,
+                    restCorner = 24.dp,
+                ) {
+                    Icon(Icons.Rounded.SkipNext, null)
+                }
             }
         }
-        Box(
-            Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth(progress)
-                .height(3.dp)
-                .background(scheme.primary)
-        )
+        if (prefs.miniProgress) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth(progress)
+                    .height(3.dp)
+                    .background(scheme.primary)
+            )
+        }
     }
 }

@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -35,6 +37,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.Equalizer
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -48,6 +53,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -64,7 +71,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalView
@@ -80,7 +90,7 @@ import java.util.Locale
 import kotlin.math.max
 
 @Composable
-fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit) {
+fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit, onOpenEqualizer: () -> Unit) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val position by vm.position.collectAsStateWithLifecycle()
     val prefs = LocalPrefs.current
@@ -117,7 +127,7 @@ fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit) {
     val scheme = target.animated()
 
     MaterialTheme(colorScheme = scheme, typography = typography, shapes = shapes) {
-        PlayerContent(vm = vm, ui = ui, position = position, onClose = onClose)
+        PlayerContent(vm = vm, ui = ui, position = position, onClose = onClose, onOpenEqualizer = onOpenEqualizer)
     }
 }
 
@@ -161,14 +171,17 @@ private fun PlayerContent(
     ui: PlaybackUi,
     position: Long,
     onClose: () -> Unit,
+    onOpenEqualizer: () -> Unit,
 ) {
     val prefs = LocalPrefs.current
+    val favs by vm.favorites.collectAsStateWithLifecycle()
+    val backdrop by rememberArtBitmap(ui.current, 300)
     val scheme = MaterialTheme.colorScheme
     val track = ui.current
     val sleepMinutes by vm.sleepMinutes.collectAsStateWithLifecycle()
 
     var showQueue by remember { mutableStateOf(false) }
-    var speedMenu by remember { mutableStateOf(false) }
+    var showSpeed by remember { mutableStateOf(false) }
     var sleepMenu by remember { mutableStateOf(false) }
 
     val view = LocalView.current
@@ -200,13 +213,26 @@ private fun PlayerContent(
     val artShape = artShapeFor(prefs, depth)
 
     Surface(modifier = Modifier.fillMaxSize(), color = scheme.background) {
+        Box(Modifier.fillMaxSize()) {
+        val glow = backdrop
+        if (prefs.blurArt && android.os.Build.VERSION.SDK_INT >= 31 && glow != null) {
+            Image(
+                bitmap = glow.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(70.dp)
+                    .graphicsLayer { alpha = 0.38f },
+            )
+        }
         BoxWithConstraints(
             Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            val artSize = maxOf(150.dp, minOf(maxHeight - 440.dp, maxWidth - 56.dp))
+            val artSize = maxOf(150.dp, minOf(maxHeight - 440.dp, maxWidth - 56.dp)) * prefs.artScale
 
             Column(
                 modifier = Modifier
@@ -238,6 +264,16 @@ private fun PlayerContent(
                         modifier = Modifier.weight(1f),
                     )
                     ExpressiveButton(
+                        onClick = onOpenEqualizer,
+                        modifier = Modifier.size(52.dp),
+                        containerColor = scheme.surfaceContainerHigh,
+                        contentColor = scheme.onSurface,
+                        restCorner = 26.dp,
+                    ) {
+                        Icon(Icons.Rounded.Equalizer, contentDescription = "Equalizer")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    ExpressiveButton(
                         onClick = { showQueue = true },
                         modifier = Modifier.size(52.dp),
                         containerColor = scheme.surfaceContainerHigh,
@@ -262,9 +298,10 @@ private fun PlayerContent(
                 Spacer(Modifier.weight(1f))
 
                 // Title block
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 AnimatedContent(
                     targetState = track,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.weight(1f),
                     transitionSpec = {
                         (slideInVertically { it / 3 } + fadeIn(tween(300))) togetherWith
                             (slideOutVertically { -it / 3 } + fadeOut(tween(200)))
@@ -286,6 +323,22 @@ private fun PlayerContent(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                }
+                if (track != null) {
+                    val liked = track.id in favs
+                    ExpressiveButton(
+                        onClick = { vm.toggleFavorite(track.id) },
+                        modifier = Modifier.size(52.dp),
+                        containerColor = if (liked) scheme.primaryContainer else scheme.surfaceContainerHigh,
+                        contentColor = if (liked) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
+                        restCorner = if (liked) 16.dp else 26.dp,
+                    ) {
+                        Icon(
+                            if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                            contentDescription = "Like",
+                        )
+                    }
+                }
                 }
 
                 // Seek bar
@@ -415,33 +468,21 @@ private fun PlayerContent(
                         )
                     }
 
-                    Box {
-                        ExpressiveButton(
-                            onClick = { speedMenu = true },
-                            modifier = Modifier
-                                .height(52.dp)
-                                .widthIn(min = 64.dp),
-                            containerColor = if (ui.speed != 1f) scheme.primaryContainer else scheme.surfaceContainerHigh,
-                            contentColor = if (ui.speed != 1f) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
-                            restCorner = 26.dp,
-                        ) {
-                            Text(
-                                text = speedLabel(ui.speed),
-                                style = MaterialTheme.typography.labelLarge,
-                                modifier = Modifier.padding(horizontal = 14.dp),
-                            )
-                        }
-                        DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
-                            listOf(0.75f, 1f, 1.25f, 1.5f, 2f).forEach { s ->
-                                DropdownMenuItem(
-                                    text = { Text(speedLabel(s)) },
-                                    onClick = {
-                                        vm.setSpeed(s)
-                                        speedMenu = false
-                                    },
-                                )
-                            }
-                        }
+                    val tuned = ui.speed != 1f || ui.pitch != 1f
+                    ExpressiveButton(
+                        onClick = { showSpeed = true },
+                        modifier = Modifier
+                            .height(52.dp)
+                            .widthIn(min = 64.dp),
+                        containerColor = if (tuned) scheme.primaryContainer else scheme.surfaceContainerHigh,
+                        contentColor = if (tuned) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
+                        restCorner = 26.dp,
+                    ) {
+                        Text(
+                            text = speedLabel(ui.speed),
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(horizontal = 14.dp),
+                        )
                     }
 
                     Box {
@@ -484,6 +525,11 @@ private fun PlayerContent(
                 Spacer(Modifier.height(16.dp))
             }
         }
+        }
+    }
+
+    if (showSpeed) {
+        SpeedSheet(vm = vm, ui = ui, onDismiss = { showSpeed = false })
     }
 
     if (showQueue) {
@@ -512,6 +558,89 @@ private fun PlayerContent(
                         onClick = { vm.skipTo(i) },
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeedSheet(vm: PlayerViewModel, ui: PlaybackUi, onDismiss: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val prefs = LocalPrefs.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var speed by remember { mutableFloatStateOf(ui.speed) }
+    var pitch by remember { mutableFloatStateOf(ui.pitch) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = scheme.surfaceContainerLow,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 24.dp, end = 24.dp, bottom = 32.dp)
+        ) {
+            Text("Speed and pitch", style = MaterialTheme.typography.headlineSmall)
+            Spacer(Modifier.height(16.dp))
+
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Speed", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Text(speedLabel(speed), style = MaterialTheme.typography.labelLarge, color = scheme.primary)
+            }
+            Slider(
+                value = speed,
+                onValueChange = {
+                    speed = it
+                    vm.setSpeedPitch(speed, pitch)
+                },
+                valueRange = 0.5f..2f,
+            )
+
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Pitch", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Text(speedLabel(pitch), style = MaterialTheme.typography.labelLarge, color = scheme.primary)
+            }
+            Slider(
+                value = pitch,
+                onValueChange = {
+                    pitch = it
+                    vm.setSpeedPitch(speed, pitch)
+                },
+                valueRange = 0.5f..2f,
+            )
+
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Skip silence", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Jumps over quiet gaps",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = prefs.skipSilence,
+                    onCheckedChange = { v -> vm.updatePrefs { it.copy(skipSilence = v) } },
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+            ExpressiveButton(
+                onClick = {
+                    speed = 1f
+                    pitch = 1f
+                    vm.setSpeedPitch(1f, 1f)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                containerColor = scheme.secondaryContainer,
+                contentColor = scheme.onSecondaryContainer,
+                restCorner = 26.dp,
+            ) {
+                Text("Reset", style = MaterialTheme.typography.labelLarge)
             }
         }
     }

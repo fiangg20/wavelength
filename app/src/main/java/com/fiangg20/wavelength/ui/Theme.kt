@@ -20,7 +20,9 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,14 +74,41 @@ fun expressiveShapes(s: Float) = Shapes(
 fun customFontId(context: android.content.Context): Int =
     context.resources.getIdentifier("app_font", "font", context.packageName)
 
-fun fontFamilyFor(context: android.content.Context, font: Int): FontFamily = when (font) {
-    1 -> FontFamily.Serif
-    2 -> FontFamily.Monospace
-    3 -> {
+/** Id of Google Sans Flex (res/font/google_sans_flex.ttf, fetched by the build), or 0 when it is missing. */
+fun flexFontId(context: android.content.Context): Int =
+    context.resources.getIdentifier("google_sans_flex", "font", context.packageName)
+
+private val flexWeights = listOf(400, 500, 600, 700, 800, 900)
+
+/** Google Sans Flex is a variable font: weight, width and roundness are axes, so one file gives every style. */
+@OptIn(ExperimentalTextApi::class)
+private fun flexFamily(id: Int, width: Float, round: Float): FontFamily =
+    FontFamily(
+        flexWeights.map { w ->
+            Font(
+                resId = id,
+                weight = FontWeight(w),
+                variationSettings = FontVariation.Settings(
+                    FontVariation.weight(w),
+                    FontVariation.width(width),
+                    FontVariation.Setting("ROND", round),
+                ),
+            )
+        }
+    )
+
+fun fontFamilyFor(context: android.content.Context, prefs: Prefs): FontFamily = when (prefs.font) {
+    1 -> FontFamily.Default
+    2 -> FontFamily.Serif
+    3 -> FontFamily.Monospace
+    4 -> {
         val id = customFontId(context)
         if (id != 0) FontFamily(Font(id)) else FontFamily.Default
     }
-    else -> FontFamily.Default
+    else -> {
+        val id = flexFontId(context)
+        if (id != 0) flexFamily(id, prefs.fontWidth, prefs.fontRound) else FontFamily.Default
+    }
 }
 
 @Composable
@@ -103,8 +132,8 @@ fun WavelengthTheme(prefs: Prefs, content: @Composable () -> Unit) {
         s
     }
 
-    val typography = remember(prefs.font, context) {
-        expressiveTypography(fontFamilyFor(context, prefs.font))
+    val typography = remember(prefs.font, prefs.fontWidth, prefs.fontRound, context) {
+        expressiveTypography(fontFamilyFor(context, prefs))
     }
     val shapes = remember(prefs.corners) { expressiveShapes(prefs.cornerScale) }
 

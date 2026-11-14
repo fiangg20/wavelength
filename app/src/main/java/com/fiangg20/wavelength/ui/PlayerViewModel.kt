@@ -3,14 +3,17 @@ package com.fiangg20.wavelength.ui
 import android.app.Application
 import android.content.ComponentName
 import android.content.ContentUris
+import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -21,6 +24,8 @@ import com.fiangg20.wavelength.data.MusicRepository
 import com.fiangg20.wavelength.data.Prefs
 import com.fiangg20.wavelength.data.SettingsStore
 import com.fiangg20.wavelength.data.Track
+import com.fiangg20.wavelength.data.smartClean
+import com.fiangg20.wavelength.download.DownloadManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -30,6 +35,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -46,6 +52,7 @@ data class PlaybackUi(
     val shuffle: Boolean = false,
     val repeat: Int = Player.REPEAT_MODE_OFF,
     val speed: Float = 1f,
+    val pitch: Float = 1f,
     val queue: List<Track> = emptyList(),
     val index: Int = 0,
     val hasMedia: Boolean = false,
@@ -55,14 +62,33 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
 
     // ---- settings -------------------------------------------------------------------------
 
-    private val store = SettingsStore(app)
+    private val store = SettingsStore.get(app)
     val prefs: StateFlow<Prefs> = store.state
     fun updatePrefs(block: (Prefs) -> Prefs) = store.update(block)
+
+    private val statePrefs = app.getSharedPreferences("wavelength_state", Context.MODE_PRIVATE)
+
+    // ---- favourites -----------------------------------------------------------------------
+
+    private val _favorites = MutableStateFlow(readFavorites())
+    val favorites: StateFlow<Set<Long>> = _favorites.asStateFlow()
+
+    private fun readFavorites(): Set<Long> =
+        (statePrefs.getString("favs", "") ?: "")
+            .split(",")
+            .mapNotNull { it.trim().toLongOrNull() }
+            .toSet()
+
+    fun toggleFavorite(id: Long) {
+        val next = _favorites.value.toMutableSet()
+        if (!next.add(id)) next.remove(id)
+        _favorites.value = next
+        statePrefs.edit().putString("favs", next.joinToString(",")).apply()
+    }
 
     // ---- library --------------------------------------------------------------------------
 
     private val allTracks = MutableStateFlow<List<Track>>(emptyList())
-    private var trackLookup: Map<Long, Track> = emptyMap()
 
     val loading = MutableStateFlow(false)
     val search = MutableStateFlow("")
@@ -70,12 +96,41 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
         search.value = q
     }
 
+    // Tag clean-up and excluded folders.
+    private val processPrefs = prefs
+        .map { Pair(it.smartTags, it.excluded) }
+        .distinctUntilChanged()
+
+    private val processed: StateFlow<List<Track>> = combine(allTracks, processPrefs) { all, pp ->
+        val skip = pp.second.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+        var list = all
+        if (skip.isNotEmpty()) {
+            list = list.filter { t -> skip.none { t.folder.contains(it, ignoreCase = true) } }
+        }
+        if (pp.first) list = list.map { smartClean(it) }
+        list
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private var lookupSource: List<Track>? = null
+    private var lookupMap: Map<Long, Track> = emptyMap()
+    private val trackLookup: Map<Long, Track>
+        get() {
+            val src = processed.value
+            if (src !== lookupSource) {
+                lookupSource = src
+                lookupMap = src.associateBy { it.id }
+            }
+            return lookupMap
+        }
+
     // Only the library-related settings should trigger a re-sort (not e.g. the accent hue slider).
     private val libraryPrefs = prefs
         .map { Triple(it.sortBy, it.sortAsc, it.minSeconds) }
         .distinctUntilChanged()
 
-    val tracks: StateFlow<List<Track>> = combine(allTracks, libraryPrefs, search) { all, lp, q ->
+    val tracks: StateFlow<List<Track>> = combine(processed, libraryPrefs, search) { all, lp, q ->
         val sortBy = lp.first
         val sortAsc = lp.second
         val minSeconds = lp.third
@@ -95,9 +150,16 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
             1 -> compareBy<Track, String>(String.CASE_INSENSITIVE_ORDER) { it.artist }
             2 -> compareBy<Track, String>(String.CASE_INSENSITIVE_ORDER) { it.album }
             3 -> compareBy<Track> { it.dateAdded }
+            4 -> compareBy<Track> { it.durationMs }
             else -> compareBy<Track, String>(String.CASE_INSENSITIVE_ORDER) { it.title }
         }
         if (sortAsc) list.sortedWith(cmp) else list.sortedWith(cmp.reversed())
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val liked: StateFlow<List<Track>> = combine(tracks, favorites) { list, favs ->
+        list.filter { it.id in favs }
     }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -139,7 +201,6 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
                     emptyList()
                 }
             }
-            trackLookup = list.associateBy { it.id }
             allTracks.value = list
             loading.value = false
         }
@@ -166,11 +227,18 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
             refresh(events.contains(Player.EVENT_TIMELINE_CHANGED))
+            if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION) ||
+                events.contains(Player.EVENT_IS_PLAYING_CHANGED) ||
+                events.contains(Player.EVENT_TIMELINE_CHANGED)
+            ) {
+                saveSession()
+            }
         }
     }
 
     private var sleepJob: Job? = null
     private var sleepEndsAt = 0L
+    private var restored = false
 
     init {
         controllerFuture.addListener(
@@ -191,6 +259,7 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
         )
 
         viewModelScope.launch {
+            var ticks = 0
             while (isActive) {
                 val c = controller
                 if (c != null) {
@@ -200,7 +269,60 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
                     val left = (sleepEndsAt - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
                     _sleepMinutes.value = ((left + 59_999L) / 60_000L).toInt()
                 }
+                if (_ui.value.isPlaying) {
+                    ticks++
+                    if (ticks % 40 == 0) saveSession()
+                }
                 delay(if (_ui.value.isPlaying) 120L else 500L)
+            }
+        }
+
+        // Put the last queue back once the library is known.
+        viewModelScope.launch {
+            processed.first { it.isNotEmpty() }
+            restoreSession()
+        }
+
+        // New downloads should appear without a manual refresh.
+        viewModelScope.launch {
+            DownloadManager.finished.collect {
+                delay(800L)
+                loadLibrary()
+            }
+        }
+    }
+
+    private fun saveSession() {
+        val c = controller ?: return
+        if (c.mediaItemCount == 0) return
+        val count = min(c.mediaItemCount, 500)
+        val ids = (0 until count).joinToString(",") { c.getMediaItemAt(it).mediaId }
+        statePrefs.edit()
+            .putString("queue", ids)
+            .putString("current", c.currentMediaItem?.mediaId ?: "")
+            .putLong("pos", c.currentPosition.coerceAtLeast(0L))
+            .apply()
+    }
+
+    private fun restoreSession() {
+        if (restored) return
+        restored = true
+        if (!store.state.value.restoreSession) return
+        val ids = (statePrefs.getString("queue", "") ?: "")
+            .split(",")
+            .mapNotNull { it.trim().toLongOrNull() }
+        if (ids.isEmpty()) return
+        val lookup = trackLookup
+        val list = ids.mapNotNull { lookup[it] }
+        if (list.isEmpty()) return
+        val current = (statePrefs.getString("current", "") ?: "").toLongOrNull()
+        val index = list.indexOfFirst { it.id == current }.coerceAtLeast(0)
+        val position = statePrefs.getLong("pos", 0L)
+        val items = list.map { it.toMediaItem() }
+        withController { c ->
+            if (c.mediaItemCount == 0) {
+                c.setMediaItems(items, index, position)
+                c.prepare()
             }
         }
     }
@@ -243,6 +365,7 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
             shuffle = c.shuffleModeEnabled,
             repeat = c.repeatMode,
             speed = c.playbackParameters.speed,
+            pitch = c.playbackParameters.pitch,
             queue = queue,
             index = index,
             hasMedia = c.mediaItemCount > 0,
@@ -252,6 +375,10 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     private fun withController(block: (MediaController) -> Unit) {
         val c = controller
         if (c != null) block(c) else pending = block
+    }
+
+    private fun toast(text: String) {
+        Toast.makeText(app, text, Toast.LENGTH_SHORT).show()
     }
 
     private fun Track.toMediaItem(): MediaItem = MediaItem.Builder()
@@ -295,6 +422,28 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
         playQueue(list.shuffled().take(400), 0, true)
     }
 
+    fun playNext(track: Track) = withController { c ->
+        if (c.mediaItemCount == 0) {
+            c.setMediaItems(listOf(track.toMediaItem()))
+            c.prepare()
+            c.play()
+        } else {
+            c.addMediaItem(c.currentMediaItemIndex + 1, track.toMediaItem())
+            toast("Playing next")
+        }
+    }
+
+    fun addToQueue(track: Track) = withController { c ->
+        if (c.mediaItemCount == 0) {
+            c.setMediaItems(listOf(track.toMediaItem()))
+            c.prepare()
+            c.play()
+        } else {
+            c.addMediaItem(track.toMediaItem())
+            toast("Added to queue")
+        }
+    }
+
     fun togglePlay() = withController { c ->
         if (c.isPlaying) c.pause() else c.play()
     }
@@ -326,7 +475,9 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setSpeed(speed: Float) = withController { it.setPlaybackSpeed(speed) }
+    fun setSpeedPitch(speed: Float, pitch: Float) = withController {
+        it.playbackParameters = PlaybackParameters(speed, pitch)
+    }
 
     fun setSleepTimer(minutes: Int) {
         sleepJob?.cancel()
@@ -347,6 +498,7 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        saveSession()
         controller?.removeListener(listener)
         MediaController.releaseFuture(controllerFuture)
         controller = null

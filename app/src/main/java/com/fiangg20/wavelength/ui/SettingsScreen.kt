@@ -1,39 +1,17 @@
 package com.fiangg20.wavelength.ui
 
 import android.os.Build
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -45,34 +23,16 @@ fun SettingsScreen(
     prefs: Prefs,
     onChange: ((Prefs) -> Prefs) -> Unit,
     onBack: () -> Unit,
+    onOpenEqualizer: () -> Unit,
+    onOpenDownloads: () -> Unit,
+    onOpenDownloadSettings: () -> Unit,
     bottomPad: Dp,
 ) {
     val scheme = MaterialTheme.colorScheme
     val context = LocalContext.current
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 24.dp, top = 12.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ExpressiveButton(
-                onClick = onBack,
-                modifier = Modifier.size(52.dp),
-                containerColor = scheme.surfaceContainerHigh,
-                contentColor = scheme.onSurface,
-                restCorner = 26.dp,
-            ) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, null)
-            }
-            Spacer(Modifier.width(16.dp))
-            Text("Settings", style = MaterialTheme.typography.displaySmall)
-        }
+    Column(Modifier.fillMaxSize()) {
+        PageHeader("Settings", onBack)
 
         Column(
             Modifier
@@ -80,6 +40,26 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
         ) {
+            // ---------------- Tools ----------------
+            SectionTitle("Tools")
+            Group {
+                LinkRow(
+                    title = "Equalizer",
+                    subtitle = "Bands, presets, bass boost and loudness",
+                    onClick = onOpenEqualizer,
+                )
+                LinkRow(
+                    title = "Downloader",
+                    subtitle = "Save audio from links with yt-dlp",
+                    onClick = onOpenDownloads,
+                )
+                LinkRow(
+                    title = "Downloader settings",
+                    subtitle = "Format, tags, playlists, network, raw arguments",
+                    onClick = onOpenDownloadSettings,
+                )
+            }
+
             // ---------------- Appearance ----------------
             SectionTitle("Appearance")
             Group {
@@ -142,20 +122,37 @@ fun SettingsScreen(
                     selected = prefs.corners,
                     onSelect = { v -> onChange { it.copy(corners = v) } },
                 )
-                Gap()
+            }
+
+            Group {
                 Label("Typeface")
-                ConnectedChoice(
-                    options = listOf("Sans", "Serif", "Mono", "Custom"),
+                SinglePills(
+                    options = listOf("Google Sans Flex", "System", "Serif", "Mono", "Custom"),
                     selected = prefs.font,
                     onSelect = { v -> onChange { it.copy(font = v) } },
                 )
-                if (prefs.font == 3 && customFontId(context) == 0) {
-                    Text(
-                        text = "No custom font found. Add a variable .ttf named app_font.ttf to app/src/main/res/font/ and rebuild.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = scheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 10.dp),
-                    )
+                if (prefs.font == 0) {
+                    if (flexFontId(context) == 0) {
+                        Hint("Google Sans Flex was not found in this build, so the system font is used. It is downloaded while GitHub builds the app. Check that the build log shows the font download step.")
+                    } else {
+                        SliderRow(
+                            title = "Width",
+                            valueText = "${prefs.fontWidth.toInt()}",
+                            value = prefs.fontWidth,
+                            range = 75f..125f,
+                            onChange = { v -> onChange { it.copy(fontWidth = v) } },
+                        )
+                        SliderRow(
+                            title = "Roundness",
+                            valueText = "${prefs.fontRound.toInt()}",
+                            value = prefs.fontRound,
+                            range = 0f..100f,
+                            onChange = { v -> onChange { it.copy(fontRound = v) } },
+                        )
+                    }
+                }
+                if (prefs.font == 4 && customFontId(context) == 0) {
+                    Hint("No custom font found. Add a .ttf named app_font.ttf to app/src/main/res/font/ and rebuild.")
                 }
             }
 
@@ -178,12 +175,27 @@ fun SettingsScreen(
                         onChange = { v -> onChange { it.copy(lobes = v.toInt()) } },
                     )
                 }
+                SliderRow(
+                    title = "Artwork size",
+                    valueText = "${(prefs.artScale * 100).toInt()}%",
+                    value = prefs.artScale,
+                    range = 0.7f..1.1f,
+                    onChange = { v -> onChange { it.copy(artScale = v) } },
+                )
                 SwitchRow(
                     title = "Spin artwork",
                     subtitle = "Slow rotation while playing (cookie and circle)",
                     checked = prefs.spinArt,
                     onChecked = { v -> onChange { it.copy(spinArt = v) } },
                 )
+                if (Build.VERSION.SDK_INT >= 31) {
+                    SwitchRow(
+                        title = "Blurred backdrop",
+                        subtitle = "A soft glow of the cover behind the player",
+                        checked = prefs.blurArt,
+                        onChecked = { v -> onChange { it.copy(blurArt = v) } },
+                    )
+                }
             }
 
             Group {
@@ -216,6 +228,45 @@ fun SettingsScreen(
                 )
             }
 
+            Group {
+                Label("Mini player")
+                SwitchRow(
+                    title = "Skip button",
+                    subtitle = null,
+                    checked = prefs.miniSkip,
+                    onChecked = { v -> onChange { it.copy(miniSkip = v) } },
+                )
+                SwitchRow(
+                    title = "Progress line",
+                    subtitle = null,
+                    checked = prefs.miniProgress,
+                    onChecked = { v -> onChange { it.copy(miniProgress = v) } },
+                )
+            }
+
+            // ---------------- Playback ----------------
+            SectionTitle("Playback")
+            Group {
+                SwitchRow(
+                    title = "Skip silence",
+                    subtitle = "Jumps over quiet gaps in tracks",
+                    checked = prefs.skipSilence,
+                    onChecked = { v -> onChange { it.copy(skipSilence = v) } },
+                )
+                SwitchRow(
+                    title = "Pause when headphones unplug",
+                    subtitle = null,
+                    checked = prefs.pauseOnUnplug,
+                    onChecked = { v -> onChange { it.copy(pauseOnUnplug = v) } },
+                )
+                SwitchRow(
+                    title = "Restore last queue",
+                    subtitle = "Pick up where you left off after reopening the app",
+                    checked = prefs.restoreSession,
+                    onChecked = { v -> onChange { it.copy(restoreSession = v) } },
+                )
+            }
+
             // ---------------- Library ----------------
             SectionTitle("Library")
             Group {
@@ -231,6 +282,34 @@ fun SettingsScreen(
                     checked = prefs.compactList,
                     onChecked = { v -> onChange { it.copy(compactList = v) } },
                 )
+                Gap()
+                Label("Album grid")
+                ConnectedChoice(
+                    options = listOf("Compact", "Cozy", "Large"),
+                    selected = prefs.albumGrid,
+                    onSelect = { v -> onChange { it.copy(albumGrid = v) } },
+                )
+                DropdownRow(
+                    title = "Sort songs by",
+                    options = listOf("Title", "Artist", "Album", "Recently added", "Length"),
+                    selected = prefs.sortBy,
+                    onSelect = { v -> onChange { it.copy(sortBy = v) } },
+                )
+                SwitchRow(
+                    title = "Ascending order",
+                    subtitle = null,
+                    checked = prefs.sortAsc,
+                    onChecked = { v -> onChange { it.copy(sortAsc = v) } },
+                )
+            }
+
+            Group {
+                SwitchRow(
+                    title = "Fix untagged files",
+                    subtitle = "Reads \"Artist - Title\" from file names and tidies underscores",
+                    checked = prefs.smartTags,
+                    onChecked = { v -> onChange { it.copy(smartTags = v) } },
+                )
                 SliderRow(
                     title = "Hide short clips",
                     valueText = if (prefs.minSeconds == 0) "Off" else "< ${prefs.minSeconds}s",
@@ -239,6 +318,13 @@ fun SettingsScreen(
                     steps = 8,
                     onChange = { v -> onChange { it.copy(minSeconds = v.toInt()) } },
                 )
+                TextRow(
+                    label = "Hide folders",
+                    value = prefs.excluded,
+                    onValue = { v -> onChange { it.copy(excluded = v) } },
+                    placeholder = "WhatsApp, Notifications, Ringtones",
+                )
+                Hint("Songs whose folder path contains any of these words (comma separated) are left out of the library.")
             }
 
             // ---------------- Feel ----------------
@@ -252,144 +338,17 @@ fun SettingsScreen(
                 )
             }
 
-            Spacer(Modifier.height(bottomPad))
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Settings building blocks
-// ---------------------------------------------------------------------------------------------
-
-@Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 8.dp, top = 22.dp, bottom = 10.dp),
-    )
-}
-
-@Composable
-private fun Group(content: @Composable () -> Unit) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 10.dp),
-        shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainer,
-    ) {
-        Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-            content()
-        }
-    }
-}
-
-@Composable
-private fun Label(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(bottom = 8.dp),
-    )
-}
-
-@Composable
-private fun Gap() {
-    Spacer(Modifier.height(14.dp))
-}
-
-@Composable
-private fun SwitchRow(
-    title: String,
-    subtitle: String?,
-    checked: Boolean,
-    onChecked: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
-            .clickable { onChecked(!checked) }
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            if (subtitle != null) {
+            SectionTitle("About")
+            Group {
+                Text("Wavelength 2.0", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    subtitle,
+                    "Material 3 Expressive music player. Downloads are powered by yt-dlp and ffmpeg running on this phone.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = scheme.onSurfaceVariant,
                 )
             }
-        }
-        Spacer(Modifier.width(12.dp))
-        Switch(checked = checked, onCheckedChange = onChecked)
-    }
-}
 
-@Composable
-private fun SliderRow(
-    title: String,
-    valueText: String,
-    value: Float,
-    range: ClosedFloatingPointRange<Float>,
-    onChange: (Float) -> Unit,
-    steps: Int = 0,
-) {
-    Column(Modifier.padding(top = 6.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            Text(
-                valueText,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-        Slider(
-            value = value.coerceIn(range.start, range.endInclusive),
-            onValueChange = onChange,
-            valueRange = range,
-            steps = steps,
-        )
-    }
-}
-
-private val presetHues = listOf(25f, 55f, 100f, 150f, 195f, 240f, 285f, 330f)
-
-@Composable
-private fun HueSwatches(hue: Float, enabled: Boolean, onPick: (Float) -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        presetHues.forEach { h ->
-            val selected = enabled && kotlin.math.abs(h - hue) < 8f
-            val color = Oklch.color(62.0, 0.16, h.toDouble())
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .aspectRatio(1f)
-                    .clip(CircleShape)
-                    .background(if (enabled) color else color.copy(alpha = 0.35f))
-                    .clickable(enabled = enabled) { onPick(h) },
-                contentAlignment = Alignment.Center,
-            ) {
-                if (selected) {
-                    Icon(
-                        Icons.Rounded.Check,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
+            Spacer(Modifier.height(bottomPad))
         }
     }
 }

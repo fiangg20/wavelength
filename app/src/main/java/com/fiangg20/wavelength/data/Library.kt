@@ -20,6 +20,11 @@ object MusicRepository {
         } else {
             MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         }
+        val pathColumn = if (Build.VERSION.SDK_INT >= 29) {
+            MediaStore.Audio.Media.RELATIVE_PATH
+        } else {
+            MediaStore.Audio.Media.DATA
+        }
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.TITLE,
@@ -29,6 +34,7 @@ object MusicRepository {
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.DATE_ADDED,
             MediaStore.Audio.Media.TRACK,
+            pathColumn,
         )
         val selection =
             "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DURATION} > 0"
@@ -43,19 +49,21 @@ object MusicRepository {
             val durC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
             val addedC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
             val trackC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
+            val pathC = c.getColumnIndexOrThrow(pathColumn)
             while (c.moveToNext()) {
                 val id = c.getLong(idC)
                 out.add(
                     Track(
                         id = id,
                         title = clean(c.getString(titleC), "Untitled"),
-                        artist = clean(c.getString(artistC), "Unknown artist"),
+                        artist = clean(c.getString(artistC), UNKNOWN_ARTIST),
                         album = clean(c.getString(albumC), "Unknown album"),
                         albumId = c.getLong(albumIdC),
                         durationMs = c.getLong(durC),
                         dateAdded = c.getLong(addedC),
                         trackNo = c.getInt(trackC),
                         uri = ContentUris.withAppendedId(collection, id),
+                        folder = c.getString(pathC) ?: "",
                     )
                 )
             }
@@ -91,6 +99,11 @@ object ArtLoader {
             synchronized(misses) { misses.add(k) }
         }
         return bmp
+    }
+
+    /** Forget "no artwork" results, so freshly downloaded files get a second chance. */
+    fun forgetMisses() {
+        synchronized(misses) { misses.clear() }
     }
 
     private fun decode(context: Context, track: Track, px: Int): Bitmap? {

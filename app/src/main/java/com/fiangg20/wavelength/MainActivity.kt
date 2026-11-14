@@ -1,6 +1,7 @@
 package com.fiangg20.wavelength
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -22,6 +23,8 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -55,7 +58,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.fiangg20.wavelength.audio.AudioFx
 import com.fiangg20.wavelength.ui.CookieShape
+import com.fiangg20.wavelength.ui.DownloadSettingsScreen
+import com.fiangg20.wavelength.ui.DownloadsScreen
+import com.fiangg20.wavelength.ui.EqualizerScreen
 import com.fiangg20.wavelength.ui.DetailScreen
 import com.fiangg20.wavelength.ui.ExpressiveButton
 import com.fiangg20.wavelength.ui.LibraryScreen
@@ -69,16 +76,35 @@ class MainActivity : ComponentActivity() {
 
     private val vm: PlayerViewModel by viewModels()
 
+    /** Text shared into the app from another app (a video link, usually). */
+    private var sharedText by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AudioFx.init(this)
+        if (savedInstanceState == null) readShare(intent)
         setContent {
             val prefs by vm.prefs.collectAsStateWithLifecycle()
             WavelengthTheme(prefs) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    Root(vm)
+                    Root(vm, sharedText) { sharedText = null }
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        readShare(intent)
+    }
+
+    private fun readShare(i: Intent?) {
+        if (i == null || i.action != Intent.ACTION_SEND) return
+        val text = i.getStringExtra(Intent.EXTRA_TEXT)
+        if (text.isNullOrBlank()) return
+        val links = Regex("""https?://\S+""").findAll(text).map { it.value }.toList()
+        sharedText = if (links.isEmpty()) text.trim() else links.joinToString("\n")
     }
 }
 
@@ -87,7 +113,7 @@ private fun audioPermission(): String =
     else Manifest.permission.READ_EXTERNAL_STORAGE
 
 @Composable
-private fun Root(vm: PlayerViewModel) {
+private fun Root(vm: PlayerViewModel, shared: String?, onSharedHandled: () -> Unit) {
     val context = LocalContext.current
     var granted by remember {
         mutableStateOf(
@@ -113,7 +139,7 @@ private fun Root(vm: PlayerViewModel) {
             launcher.launch(wanted.toTypedArray())
         }
     } else {
-        AppShell(vm)
+        AppShell(vm, shared, onSharedHandled)
     }
 }
 
@@ -167,8 +193,10 @@ private fun PermissionScreen(onGrant: () -> Unit) {
     }
 }
 
+private const val SEP = "\u001F"
+
 @Composable
-private fun AppShell(vm: PlayerViewModel) {
+private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -> Unit) {
     val prefs by vm.prefs.collectAsStateWithLifecycle()
     val ui by vm.ui.collectAsStateWithLifecycle()
     val position by vm.position.collectAsStateWithLifecycle()
@@ -176,22 +204,42 @@ private fun AppShell(vm: PlayerViewModel) {
     val artists by vm.artists.collectAsStateWithLifecycle()
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    // "" = library, "settings", "album:<id>", "artist:<name>"
-    var screen by rememberSaveable { mutableStateOf("") }
+    // Navigation stack. "" is the library; others: settings, eq, downloads, dlsettings, album:<id>, artist:<name>
+    var stackRaw by rememberSaveable { mutableStateOf("") }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
+    var dlPrefill by rememberSaveable { mutableStateOf("") }
+
+    val stack = if (stackRaw.isEmpty()) emptyList() else stackRaw.split(SEP)
+    val screen = stack.lastOrNull() ?: ""
+    fun push(next: String) {
+        stackRaw = if (stackRaw.isEmpty()) next else stackRaw + SEP + next
+    }
+    fun pop() {
+        stackRaw = stack.dropLast(1).joinToString(SEP)
+    }
+
+    LaunchedEffect(shared) {
+        if (!shared.isNullOrBlank()) {
+            dlPrefill = shared
+            playerOpen = false
+            if (screen != "downloads") push("downloads")
+            onSharedHandled()
+        }
+    }
 
     BackHandler(enabled = playerOpen) { playerOpen = false }
-    BackHandler(enabled = !playerOpen && screen.isNotEmpty()) { screen = "" }
+    BackHandler(enabled = !playerOpen && screen.isNotEmpty()) { pop() }
 
     val miniVisible = ui.hasMedia && ui.current != null
-    val bottomPad = if (miniVisible) 112.dp else 32.dp
+    val bottomPad = if (miniVisible) 120.dp else 32.dp
+    val backdrop = MaterialTheme.colorScheme.background
 
     Box(Modifier.fillMaxSize()) {
         AnimatedContent(
             targetState = screen,
             modifier = Modifier.fillMaxSize(),
             transitionSpec = {
-                if (targetState.isNotEmpty()) {
+                if (targetState.length >= initialState.length && targetState.isNotEmpty()) {
                     (slideInHorizontally(spring(stiffness = 400f)) { it / 6 } + fadeIn(tween(220))) togetherWith
                         fadeOut(tween(150))
                 } else {
@@ -205,9 +253,20 @@ private fun AppShell(vm: PlayerViewModel) {
                 s == "settings" -> SettingsScreen(
                     prefs = prefs,
                     onChange = { vm.updatePrefs(it) },
-                    onBack = { screen = "" },
+                    onBack = { pop() },
+                    onOpenEqualizer = { push("eq") },
+                    onOpenDownloads = { push("downloads") },
+                    onOpenDownloadSettings = { push("dlsettings") },
                     bottomPad = bottomPad,
                 )
+                s == "eq" -> EqualizerScreen(onBack = { pop() }, bottomPad = bottomPad)
+                s == "downloads" -> DownloadsScreen(
+                    initialInput = dlPrefill,
+                    onBack = { pop() },
+                    onOpenSettings = { push("dlsettings") },
+                    bottomPad = bottomPad,
+                )
+                s == "dlsettings" -> DownloadSettingsScreen(onBack = { pop() }, bottomPad = bottomPad)
                 s.startsWith("album:") -> {
                     val id = s.removePrefix("album:").toLongOrNull()
                     val album = albums.firstOrNull { it.id == id }
@@ -219,13 +278,13 @@ private fun AppShell(vm: PlayerViewModel) {
                             tracks = album.tracks,
                             ui = ui,
                             bottomPad = bottomPad,
-                            onBack = { screen = "" },
+                            onBack = { pop() },
                             onPlay = { vm.playQueue(album.tracks, it) },
                             onPlayAll = { vm.playQueue(album.tracks, 0, shuffle = false) },
                             onShuffle = { vm.playShuffled(album.tracks) },
                         )
                     } else {
-                        LaunchedEffect(s) { screen = "" }
+                        LaunchedEffect(s) { pop() }
                     }
                 }
                 s.startsWith("artist:") -> {
@@ -242,24 +301,40 @@ private fun AppShell(vm: PlayerViewModel) {
                             tracks = sorted,
                             ui = ui,
                             bottomPad = bottomPad,
-                            onBack = { screen = "" },
+                            onBack = { pop() },
                             onPlay = { vm.playQueue(sorted, it) },
                             onPlayAll = { vm.playQueue(sorted, 0, shuffle = false) },
                             onShuffle = { vm.playShuffled(sorted) },
                         )
                     } else {
-                        LaunchedEffect(s) { screen = "" }
+                        LaunchedEffect(s) { pop() }
                     }
                 }
                 else -> LibraryScreen(
                     vm = vm,
                     tab = tab,
                     onTab = { tab = it },
-                    onOpenSettings = { screen = "settings" },
-                    onOpenDetail = { screen = it },
+                    onOpenSettings = { push("settings") },
+                    onOpenDownloads = { push("downloads") },
+                    onOpenDetail = { push(it) },
                     bottomPad = bottomPad,
                 )
             }
+        }
+
+        // Fade the list out behind the mini player so rows never collide with it.
+        AnimatedVisibility(
+            visible = miniVisible && !playerOpen,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(170.dp)
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, backdrop)))
+            )
         }
 
         // Mini player
@@ -287,7 +362,14 @@ private fun AppShell(vm: PlayerViewModel) {
             enter = slideInVertically(spring(dampingRatio = 0.85f, stiffness = 300f)) { it } + fadeIn(),
             exit = slideOutVertically(tween(260)) { it } + fadeOut(tween(200)),
         ) {
-            NowPlayingScreen(vm = vm, onClose = { playerOpen = false })
+            NowPlayingScreen(
+                vm = vm,
+                onClose = { playerOpen = false },
+                onOpenEqualizer = {
+                    playerOpen = false
+                    if (screen != "eq") push("eq")
+                },
+            )
         }
     }
 }

@@ -24,6 +24,16 @@ jobs:
         with:
           gradle-version: "8.14.3"
 
+      - name: Download Google Sans Flex font
+        run: |
+          mkdir -p app/src/main/res/font
+          curl -fsSL -o app/src/main/res/font/google_sans_flex.ttf "https://raw.githubusercontent.com/google/fonts/main/ofl/googlesansflex/GoogleSansFlex%5BROND%2Copsz%2Cslnt%2Cwdth%2Cwght%5D.ttf" || echo "Font download failed, the app will use the system font"
+          if [ -f app/src/main/res/font/google_sans_flex.ttf ] && [ "$(stat -c%s app/src/main/res/font/google_sans_flex.ttf)" -lt 100000 ]; then
+            rm -f app/src/main/res/font/google_sans_flex.ttf
+            echo "Font file looked wrong, removed it"
+          fi
+          ls -la app/src/main/res/font || true
+
       - name: Build debug APK
         run: gradle assembleDebug
 
