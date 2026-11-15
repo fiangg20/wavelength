@@ -250,6 +250,24 @@ fun SettingsScreen(
                 )
             }
 
+            // ---------------- Lyrics ----------------
+            SectionTitle("Lyrics")
+            Group {
+                SwitchRow(
+                    title = "Find lyrics online",
+                    subtitle = "Looks up synced lyrics on lrclib.net the first time you open them. They are saved on the phone afterwards.",
+                    checked = prefs.lyricsOnline,
+                    onChecked = { v -> onChange { it.copy(lyricsOnline = v) } },
+                )
+                SliderRow(
+                    title = "Lyrics size",
+                    valueText = "${(prefs.lyricsSize * 100).toInt()}%",
+                    value = prefs.lyricsSize,
+                    range = 0.8f..1.5f,
+                    onChange = { v -> onChange { it.copy(lyricsSize = v) } },
+                )
+            }
+
             // ---------------- Playback ----------------
             SectionTitle("Playback")
             Group {

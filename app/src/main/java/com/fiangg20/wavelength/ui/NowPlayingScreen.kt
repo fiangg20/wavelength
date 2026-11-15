@@ -35,12 +35,14 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
@@ -94,7 +96,12 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 @Composable
-fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit, onOpenEqualizer: () -> Unit) {
+fun NowPlayingScreen(
+    vm: PlayerViewModel,
+    onClose: () -> Unit,
+    onOpenEqualizer: () -> Unit,
+    onAddToPlaylist: (com.fiangg20.wavelength.data.Track) -> Unit,
+) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val position by vm.position.collectAsStateWithLifecycle()
     val prefs = LocalPrefs.current
@@ -131,7 +138,14 @@ fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit, onOpenEqualizer: 
     val scheme = target.animated()
 
     MaterialTheme(colorScheme = scheme, typography = typography, shapes = shapes) {
-        PlayerContent(vm = vm, ui = ui, position = position, onClose = onClose, onOpenEqualizer = onOpenEqualizer)
+        PlayerContent(
+            vm = vm,
+            ui = ui,
+            position = position,
+            onClose = onClose,
+            onOpenEqualizer = onOpenEqualizer,
+            onAddToPlaylist = onAddToPlaylist,
+        )
     }
 }
 
@@ -176,6 +190,7 @@ private fun PlayerContent(
     position: Long,
     onClose: () -> Unit,
     onOpenEqualizer: () -> Unit,
+    onAddToPlaylist: (com.fiangg20.wavelength.data.Track) -> Unit,
 ) {
     val prefs = LocalPrefs.current
     val favs by vm.favorites.collectAsStateWithLifecycle()
@@ -186,6 +201,7 @@ private fun PlayerContent(
 
     var showQueue by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
+    var showLyrics by remember { mutableStateOf(false) }
     var showSleepDialog by remember { mutableStateOf(false) }
     var customMinutes by remember { mutableFloatStateOf(20f) }
     var sleepMenu by remember { mutableStateOf(false) }
@@ -262,31 +278,47 @@ private fun PlayerContent(
                     ) {
                         Icon(Icons.Rounded.KeyboardArrowDown, null)
                     }
-                    Text(
-                        text = "Now playing",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = scheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(1f),
-                    )
+                    Spacer(Modifier.weight(1f))
+                    if (track != null) {
+                        ExpressiveButton(
+                            onClick = { showLyrics = true },
+                            modifier = Modifier.size(48.dp),
+                            containerColor = scheme.surfaceContainerHigh,
+                            contentColor = scheme.onSurface,
+                            restCorner = 24.dp,
+                        ) {
+                            Icon(Icons.Rounded.Lyrics, contentDescription = "Lyrics")
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        ExpressiveButton(
+                            onClick = { onAddToPlaylist(track) },
+                            modifier = Modifier.size(48.dp),
+                            containerColor = scheme.surfaceContainerHigh,
+                            contentColor = scheme.onSurface,
+                            restCorner = 24.dp,
+                        ) {
+                            Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = "Add to playlist")
+                        }
+                        Spacer(Modifier.width(6.dp))
+                    }
                     ExpressiveButton(
                         onClick = onOpenEqualizer,
-                        modifier = Modifier.size(52.dp),
+                        modifier = Modifier.size(48.dp),
                         containerColor = scheme.surfaceContainerHigh,
                         contentColor = scheme.onSurface,
-                        restCorner = 26.dp,
+                        restCorner = 24.dp,
                     ) {
                         Icon(Icons.Rounded.Equalizer, contentDescription = "Equalizer")
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(6.dp))
                     ExpressiveButton(
                         onClick = { showQueue = true },
-                        modifier = Modifier.size(52.dp),
+                        modifier = Modifier.size(48.dp),
                         containerColor = scheme.surfaceContainerHigh,
                         contentColor = scheme.onSurface,
-                        restCorner = 26.dp,
+                        restCorner = 24.dp,
                     ) {
-                        Icon(Icons.AutoMirrored.Rounded.QueueMusic, null)
+                        Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Queue")
                     }
                 }
 
@@ -543,6 +575,10 @@ private fun PlayerContent(
 
     if (showSpeed) {
         SpeedSheet(vm = vm, ui = ui, onDismiss = { showSpeed = false })
+    }
+
+    if (showLyrics && track != null) {
+        LyricsSheet(vm = vm, track = track, onDismiss = { showLyrics = false })
     }
 
     if (showSleepDialog) {

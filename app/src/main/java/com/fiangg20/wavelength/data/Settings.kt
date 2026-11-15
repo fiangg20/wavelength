@@ -35,6 +35,8 @@ data class Prefs(
     val pauseOnUnplug: Boolean = true,
     val restoreSession: Boolean = true,
     val vinylSync: Boolean = true, // speed and pitch move together
+    val lyricsOnline: Boolean = true, // look up lyrics on lrclib.net
+    val lyricsSize: Float = 1f,
     // Library
     val showListArt: Boolean = true,
     val compactList: Boolean = false,
@@ -96,6 +98,8 @@ class SettingsStore private constructor(context: Context) {
             pauseOnUnplug = sp.getBoolean("pauseOnUnplug", d.pauseOnUnplug),
             restoreSession = sp.getBoolean("restoreSession", d.restoreSession),
             vinylSync = sp.getBoolean("vinylSync", d.vinylSync),
+            lyricsOnline = sp.getBoolean("lyricsOnline", d.lyricsOnline),
+            lyricsSize = sp.getFloat("lyricsSize", d.lyricsSize),
             showListArt = sp.getBoolean("showListArt", d.showListArt),
             compactList = sp.getBoolean("compactList", d.compactList),
             sortBy = sp.getInt("sortBy", d.sortBy),
@@ -136,6 +140,8 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("pauseOnUnplug", p.pauseOnUnplug)
             .putBoolean("restoreSession", p.restoreSession)
             .putBoolean("vinylSync", p.vinylSync)
+            .putBoolean("lyricsOnline", p.lyricsOnline)
+            .putFloat("lyricsSize", p.lyricsSize)
             .putBoolean("showListArt", p.showListArt)
             .putBoolean("compactList", p.compactList)
             .putInt("sortBy", p.sortBy)

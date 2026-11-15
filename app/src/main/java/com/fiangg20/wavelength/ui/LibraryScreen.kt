@@ -90,10 +90,10 @@ fun LibraryScreen(
     onOpenSettings: () -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenDetail: (String) -> Unit,
+    onAddToPlaylist: (Track) -> Unit,
     bottomPad: Dp,
 ) {
     val tracks by vm.tracks.collectAsStateWithLifecycle()
-    val liked by vm.liked.collectAsStateWithLifecycle()
     val albums by vm.albums.collectAsStateWithLifecycle()
     val artists by vm.artists.collectAsStateWithLifecycle()
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -168,7 +168,7 @@ fun LibraryScreen(
         }
 
         ConnectedChoice(
-            options = listOf("Songs", "Albums", "Artists", "Liked"),
+            options = listOf("Songs", "Albums", "Artists", "Playlists"),
             selected = tab,
             onSelect = onTab,
             modifier = Modifier.padding(horizontal = 20.dp),
@@ -200,7 +200,9 @@ fun LibraryScreen(
 
         Spacer(Modifier.height(8.dp))
 
-        if (loading && tracks.isEmpty()) {
+        if (tab == 3) {
+            PlaylistsTab(vm = vm, bottomPad = bottomPad, onOpen = { onOpenDetail("playlist:$it") })
+        } else if (loading && tracks.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
@@ -218,23 +220,10 @@ fun LibraryScreen(
                     onPlayAll = { vm.playQueue(tracks, 0, shuffle = false) },
                     onShuffle = { vm.playShuffled(tracks) },
                     vm = vm,
+                    onAddToPlaylist = onAddToPlaylist,
                 )
                 1 -> AlbumGrid(albums, bottomPad) { onOpenDetail("album:${it.id}") }
-                2 -> ArtistList(artists, bottomPad) { onOpenDetail("artist:${it.name}") }
-                else -> if (liked.isEmpty()) {
-                    EmptyState(message = "No liked songs yet. Long-press a song to like it.")
-                } else {
-                    SongList(
-                        tracks = liked,
-                        ui = ui,
-                        bottomPad = bottomPad,
-                        onPlay = { vm.playQueue(liked, it) },
-                        onPlayAll = { vm.playQueue(liked, 0, shuffle = false) },
-                        onShuffle = { vm.playShuffled(liked) },
-                        vm = vm,
-                        showSort = false,
-                    )
-                }
+                else -> ArtistList(artists, bottomPad) { onOpenDetail("artist:${it.name}") }
             }
         }
     }
@@ -273,9 +262,10 @@ private fun SongList(
     onPlayAll: () -> Unit,
     onShuffle: () -> Unit,
     vm: PlayerViewModel,
+    onAddToPlaylist: (Track) -> Unit,
     showSort: Boolean = true,
 ) {
-    val favs by vm.favorites.collectAsStateWithLifecycle()
+    val actionsFor = rememberTrackActions(vm, onAddToPlaylist)
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = bottomPad),
@@ -295,18 +285,12 @@ private fun SongList(
             }
         }
         itemsIndexed(tracks, key = { _, t -> t.id }) { index, t ->
-            val isLiked = t.id in favs
             TrackRow(
                 track = t,
                 active = ui.current?.id == t.id,
                 playing = ui.isPlaying,
                 onClick = { onPlay(index) },
-                actions = TrackActions(
-                    liked = isLiked,
-                    onPlayNext = { vm.playNext(t) },
-                    onAddToQueue = { vm.addToQueue(t) },
-                    onToggleLike = { vm.toggleFavorite(t.id) },
-                ),
+                actions = actionsFor(t),
             )
         }
     }
@@ -393,11 +377,15 @@ private fun SortMenu(vm: PlayerViewModel) {
 }
 
 /** What the long-press menu on a song can do. */
-class TrackActions(
+data class TrackActions(
     val liked: Boolean,
     val onPlayNext: () -> Unit,
     val onAddToQueue: () -> Unit,
     val onToggleLike: () -> Unit,
+    val onAddToPlaylist: (() -> Unit)? = null,
+    val onRemove: (() -> Unit)? = null,
+    val onMoveUp: (() -> Unit)? = null,
+    val onMoveDown: (() -> Unit)? = null,
 )
 
 @Composable
@@ -494,6 +482,16 @@ fun TrackRow(
                     menu = false
                 },
             )
+            val addToPlaylist = actions.onAddToPlaylist
+            if (addToPlaylist != null) {
+                DropdownMenuItem(
+                    text = { Text("Add to playlist") },
+                    onClick = {
+                        addToPlaylist()
+                        menu = false
+                    },
+                )
+            }
             DropdownMenuItem(
                 text = { Text(if (actions.liked) "Remove from liked" else "Like") },
                 leadingIcon = {
@@ -504,6 +502,36 @@ fun TrackRow(
                     menu = false
                 },
             )
+            val moveUp = actions.onMoveUp
+            if (moveUp != null) {
+                DropdownMenuItem(
+                    text = { Text("Move up") },
+                    onClick = {
+                        moveUp()
+                        menu = false
+                    },
+                )
+            }
+            val moveDown = actions.onMoveDown
+            if (moveDown != null) {
+                DropdownMenuItem(
+                    text = { Text("Move down") },
+                    onClick = {
+                        moveDown()
+                        menu = false
+                    },
+                )
+            }
+            val remove = actions.onRemove
+            if (remove != null) {
+                DropdownMenuItem(
+                    text = { Text("Remove from playlist") },
+                    onClick = {
+                        remove()
+                        menu = false
+                    },
+                )
+            }
         }
     }
     }
@@ -620,6 +648,8 @@ private fun ArtistList(artists: List<Artist>, bottomPad: Dp, onClick: (Artist) -
 
 @Composable
 fun DetailScreen(
+    vm: PlayerViewModel,
+    onAddToPlaylist: (Track) -> Unit,
     title: String,
     subtitle: String,
     isArtist: Boolean,
@@ -632,6 +662,7 @@ fun DetailScreen(
     onShuffle: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val actionsFor = rememberTrackActions(vm, onAddToPlaylist)
     Column(
         Modifier
             .fillMaxSize()
@@ -697,6 +728,7 @@ fun DetailScreen(
                     active = ui.current?.id == t.id,
                     playing = ui.isPlaying,
                     onClick = { onPlay(index) },
+                    actions = actionsFor(t),
                 )
             }
         }

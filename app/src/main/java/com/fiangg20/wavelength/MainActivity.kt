@@ -60,6 +60,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import com.fiangg20.wavelength.audio.AudioFx
+import com.fiangg20.wavelength.data.Track
+import com.fiangg20.wavelength.ui.AddToPlaylistSheet
 import com.fiangg20.wavelength.ui.CookieShape
 import com.fiangg20.wavelength.ui.DownloadSettingsScreen
 import com.fiangg20.wavelength.ui.DownloadsScreen
@@ -70,6 +72,7 @@ import com.fiangg20.wavelength.ui.LibraryScreen
 import com.fiangg20.wavelength.ui.MiniPlayer
 import com.fiangg20.wavelength.ui.NowPlayingScreen
 import com.fiangg20.wavelength.ui.PlayerViewModel
+import com.fiangg20.wavelength.ui.PlaylistScreen
 import com.fiangg20.wavelength.ui.SettingsScreen
 import com.fiangg20.wavelength.ui.WavelengthTheme
 
@@ -210,10 +213,13 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
     val artists by vm.artists.collectAsStateWithLifecycle()
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    // Navigation stack. "" is the library; others: settings, eq, downloads, dlsettings, album:<id>, artist:<name>
+    // Navigation stack. "" is the library; others: settings, eq, downloads, dlsettings, album:<id>, artist:<name>, playlist:<id>
     var stackRaw by rememberSaveable { mutableStateOf("") }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
     var dlPrefill by rememberSaveable { mutableStateOf("") }
+    // Song waiting to be put in a playlist (opens the picker sheet).
+    var addTarget by remember { mutableStateOf<Track?>(null) }
+    val addToPlaylist: (Track) -> Unit = { addTarget = it }
 
     val stack = if (stackRaw.isEmpty()) emptyList() else stackRaw.split(SEP)
     val screen = stack.lastOrNull() ?: ""
@@ -278,6 +284,8 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
                     val album = albums.firstOrNull { it.id == id }
                     if (album != null) {
                         DetailScreen(
+                            vm = vm,
+                            onAddToPlaylist = addToPlaylist,
                             title = album.title,
                             subtitle = "${album.artist} · ${album.tracks.size} songs",
                             isArtist = false,
@@ -301,6 +309,8 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
                             compareBy({ it.album.lowercase() }, { it.trackNo }, { it.title.lowercase() })
                         )
                         DetailScreen(
+                            vm = vm,
+                            onAddToPlaylist = addToPlaylist,
                             title = artist.name,
                             subtitle = "${artist.tracks.size} songs · ${artist.albumCount} albums",
                             isArtist = true,
@@ -316,6 +326,14 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
                         LaunchedEffect(s) { pop() }
                     }
                 }
+                s.startsWith("playlist:") -> PlaylistScreen(
+                    vm = vm,
+                    id = s.removePrefix("playlist:"),
+                    ui = ui,
+                    bottomPad = bottomPad,
+                    onBack = { pop() },
+                    onAddToPlaylist = addToPlaylist,
+                )
                 else -> LibraryScreen(
                     vm = vm,
                     tab = tab,
@@ -323,6 +341,7 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
                     onOpenSettings = { push("settings") },
                     onOpenDownloads = { push("downloads") },
                     onOpenDetail = { push(it) },
+                    onAddToPlaylist = addToPlaylist,
                     bottomPad = bottomPad,
                 )
             }
@@ -375,7 +394,13 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
                     playerOpen = false
                     if (screen != "eq") push("eq")
                 },
+                onAddToPlaylist = addToPlaylist,
             )
+        }
+
+        val target = addTarget
+        if (target != null) {
+            AddToPlaylistSheet(vm = vm, track = target, onDismiss = { addTarget = null })
         }
     }
 }

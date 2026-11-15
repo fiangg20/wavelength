@@ -21,6 +21,8 @@ import com.fiangg20.wavelength.PlaybackService
 import com.fiangg20.wavelength.data.Album
 import com.fiangg20.wavelength.data.Artist
 import com.fiangg20.wavelength.data.MusicRepository
+import com.fiangg20.wavelength.data.PlaylistStore
+import com.fiangg20.wavelength.data.PlaylistUi
 import com.fiangg20.wavelength.data.Prefs
 import com.fiangg20.wavelength.data.SettingsStore
 import com.fiangg20.wavelength.data.Track
@@ -85,6 +87,10 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
         _favorites.value = next
         statePrefs.edit().putString("favs", next.joinToString(",")).apply()
     }
+
+    // ---- playlists ------------------------------------------------------------------------
+
+    private val playlistStore = PlaylistStore.get(app)
 
     // ---- library --------------------------------------------------------------------------
 
@@ -157,6 +163,33 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** User playlists with their songs resolved against the library (missing files drop out). */
+    val playlists: StateFlow<List<PlaylistUi>> = combine(playlistStore.state, processed) { stored, all ->
+        val byId = all.associateBy { it.id }
+        stored.map { p -> PlaylistUi(p.id, p.name, p.trackIds.mapNotNull { byId[it] }) }
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun createPlaylist(name: String, first: Track? = null): String {
+        val id = playlistStore.create(name, if (first == null) emptyList() else listOf(first.id))
+        if (first != null) toast("Added to ${name.trim().ifEmpty { "New playlist" }}")
+        return id
+    }
+
+    fun renamePlaylist(id: String, name: String) = playlistStore.rename(id, name)
+
+    fun deletePlaylist(id: String) = playlistStore.delete(id)
+
+    fun addToPlaylist(id: String, name: String, songs: List<Track>) {
+        val added = playlistStore.addTracks(id, songs.map { it.id })
+        toast(if (added > 0) "Added to $name" else "Already in $name")
+    }
+
+    fun removeFromPlaylist(id: String, trackId: Long) = playlistStore.removeTrack(id, trackId)
+
+    fun movePlaylistTrack(id: String, trackId: Long, delta: Int) = playlistStore.move(id, trackId, delta)
 
     val liked: StateFlow<List<Track>> = combine(tracks, favorites) { list, favs ->
         list.filter { it.id in favs }
@@ -458,6 +491,12 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
             c.seekTo(target)
             _position.value = target
         }
+    }
+
+    fun seekToMs(ms: Long) = withController { c ->
+        val target = ms.coerceAtLeast(0L)
+        c.seekTo(target)
+        _position.value = target
     }
 
     fun skipTo(index: Int) = withController { c ->
