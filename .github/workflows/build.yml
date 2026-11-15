@@ -43,7 +43,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
       - name: Publish APK to Releases
@@ -51,6 +51,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Wavelength.apk
+          ls -la app/build/outputs/apk/debug
+          cp app/build/outputs/apk/debug/app-arm64-v8a-debug.apk Wavelength-arm64.apk
+          cp app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk Wavelength-arm32.apk
           gh release delete latest --cleanup-tag -y || true
-          gh release create latest Wavelength.apk --title "Wavelength build ${{ github.run_number }}" --notes "Debug APK, install and allow unknown apps." --target "${{ github.sha }}"
+          gh release create latest Wavelength-arm64.apk Wavelength-arm32.apk --title "Wavelength build ${{ github.run_number }}" --notes "Modern phones: Wavelength-arm64.apk. Old 32-bit phones: Wavelength-arm32.apk." --target "${{ github.sha }}"
