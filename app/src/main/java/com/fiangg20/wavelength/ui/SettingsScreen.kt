@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.fiangg20.wavelength.data.ArtistSplitter
 import com.fiangg20.wavelength.data.Prefs
 import java.util.Locale
 
@@ -331,6 +332,34 @@ fun SettingsScreen(
                     checked = prefs.sortAsc,
                     onChecked = { v -> onChange { it.copy(sortAsc = v) } },
                 )
+            }
+
+            Group {
+                SwitchRow(
+                    title = "Split artist names",
+                    subtitle = "\"RYO, Limbx\" becomes two artists, each with their own page. Albums keep the first artist as their owner.",
+                    checked = prefs.artistSplit,
+                    onChecked = { v -> onChange { it.copy(artistSplit = v) } },
+                )
+                if (prefs.artistSplit) {
+                    Gap()
+                    Label("Split at")
+                    MultiPills(
+                        options = ArtistSplitter.SEPARATORS,
+                        isOn = { i -> prefs.artistSeps and (1 shl i) != 0 },
+                        onToggle = { i -> onChange { it.copy(artistSeps = it.artistSeps xor (1 shl i)) } },
+                    )
+                    Hint("\"x\" and \"+\" are off by default because many band names contain them.")
+                    Gap()
+                    TextRow(
+                        label = "Never split these names",
+                        value = prefs.artistKeep,
+                        onValue = { v -> onChange { it.copy(artistKeep = v) } },
+                        placeholder = "AC/DC",
+                        singleLine = false,
+                    )
+                    Hint("One name per line. Use it for artists whose name contains a comma, slash or &.")
+                }
             }
 
             Group {

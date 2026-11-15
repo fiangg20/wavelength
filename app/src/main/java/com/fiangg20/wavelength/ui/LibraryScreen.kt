@@ -561,8 +561,8 @@ private fun AlbumGrid(albums: List<Album>, bottomPad: Dp, onClick: (Album) -> Un
                     .clip(MaterialTheme.shapes.large)
                     .clickable { onClick(album) }
             ) {
-                Artwork(
-                    track = album.tracks.firstOrNull(),
+                AlbumArtwork(
+                    tracks = album.tracks,
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(1f),
@@ -694,8 +694,8 @@ fun DetailScreen(
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Artwork(
-                        track = tracks.firstOrNull(),
+                    AlbumArtwork(
+                        tracks = tracks,
                         modifier = Modifier.size(132.dp),
                         shape = if (isArtist) CookieShape(9, 0.1f) else MaterialTheme.shapes.large,
                         px = 400,

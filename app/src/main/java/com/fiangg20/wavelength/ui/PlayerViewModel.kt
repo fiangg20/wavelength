@@ -20,6 +20,8 @@ import androidx.media3.session.SessionToken
 import com.fiangg20.wavelength.PlaybackService
 import com.fiangg20.wavelength.data.Album
 import com.fiangg20.wavelength.data.Artist
+import com.fiangg20.wavelength.data.ArtistConfig
+import com.fiangg20.wavelength.data.Library
 import com.fiangg20.wavelength.data.MusicRepository
 import com.fiangg20.wavelength.data.PlaylistStore
 import com.fiangg20.wavelength.data.PlaylistUi
@@ -197,30 +199,20 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val albums: StateFlow<List<Album>> = tracks
-        .map { list ->
-            list.groupBy { it.albumId }
-                .map { (id, ts) ->
-                    val ordered = ts.sortedWith(compareBy<Track> { it.trackNo }.thenBy { it.title.lowercase() })
-                    val artists = ordered.map { it.artist }.distinct()
-                    Album(
-                        id = id,
-                        title = ordered.first().album,
-                        artist = if (artists.size > 1) "Various artists" else artists.first(),
-                        tracks = ordered,
-                    )
-                }
-                .sortedBy { it.title.lowercase() }
-        }
+    // How artist names are split decides how albums and artists are grouped.
+    private val artistConfig = prefs
+        .map { ArtistConfig.from(it) }
+        .distinctUntilChanged()
+
+    val albums: StateFlow<List<Album>> = combine(tracks, artistConfig) { list, cfg ->
+        Library.albums(list, cfg)
+    }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val artists: StateFlow<List<Artist>> = tracks
-        .map { list ->
-            list.groupBy { it.artist }
-                .map { (name, ts) -> Artist(name, ts) }
-                .sortedBy { it.name.lowercase() }
-        }
+    val artists: StateFlow<List<Artist>> = combine(tracks, artistConfig) { list, cfg ->
+        Library.artists(list, cfg)
+    }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 

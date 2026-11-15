@@ -445,6 +445,62 @@ fun Artwork(
     }
 }
 
+/** Cover for an album made of several songs: tries songs in turn until one of them has artwork. */
+@Composable
+fun AlbumArtwork(
+    tracks: List<Track>,
+    modifier: Modifier,
+    shape: Shape,
+    px: Int = 256,
+) {
+    val context = LocalContext.current.applicationContext
+    val first = tracks.firstOrNull()
+    val bmp by produceState<Bitmap?>(
+        if (first != null) ArtLoader.peek(first, px) else null,
+        first?.id,
+        tracks.size,
+        px,
+    ) {
+        var found: Bitmap? = null
+        for (t in tracks.take(8)) {
+            found = ArtLoader.load(context, t, px)
+            if (found != null) break
+        }
+        value = found
+    }
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.secondaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        Crossfade(
+            targetState = bmp,
+            modifier = Modifier.fillMaxSize(),
+            animationSpec = tween(220),
+            label = "albumArt",
+        ) { b ->
+            if (b != null) {
+                Image(
+                    bitmap = b.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.MusicNote,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
+                        modifier = Modifier.fillMaxSize(0.42f),
+                    )
+                }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Small pieces
 // ---------------------------------------------------------------------------------------------

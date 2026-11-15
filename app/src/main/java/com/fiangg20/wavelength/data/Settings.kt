@@ -54,6 +54,9 @@ data class Prefs(
     val smartTags: Boolean = true,
     val excluded: String = "",
     val albumGrid: Int = 1, // 0 compact, 1 cozy, 2 large
+    val artistSplit: Boolean = true, // "RYO, Limbx" becomes two artists
+    val artistSeps: Int = 31, // bit mask of the separators in use, see ArtistSplitter.SEPARATORS
+    val artistKeep: String = "AC/DC\nTyler, The Creator", // names that must never be split, one per line
     // Feedback
     val haptics: Boolean = true,
 ) {
@@ -124,6 +127,9 @@ class SettingsStore private constructor(context: Context) {
             smartTags = sp.getBoolean("smartTags", d.smartTags),
             excluded = sp.getString("excluded", d.excluded) ?: d.excluded,
             albumGrid = sp.getInt("albumGrid", d.albumGrid),
+            artistSplit = sp.getBoolean("artistSplit", d.artistSplit),
+            artistSeps = sp.getInt("artistSeps", d.artistSeps),
+            artistKeep = sp.getString("artistKeep", d.artistKeep) ?: d.artistKeep,
             haptics = sp.getBoolean("haptics", d.haptics),
         )
     }
@@ -174,6 +180,9 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("smartTags", p.smartTags)
             .putString("excluded", p.excluded)
             .putInt("albumGrid", p.albumGrid)
+            .putBoolean("artistSplit", p.artistSplit)
+            .putInt("artistSeps", p.artistSeps)
+            .putString("artistKeep", p.artistKeep)
             .putBoolean("haptics", p.haptics)
             .apply()
     }

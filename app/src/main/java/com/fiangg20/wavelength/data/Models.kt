@@ -27,9 +27,8 @@ data class Album(
 data class Artist(
     val name: String,
     val tracks: List<Track>,
-) {
-    val albumCount: Int get() = tracks.map { it.albumId }.distinct().size
-}
+    val albumCount: Int = 1,
+)
 
 /** Fixes untagged files: "Artist - Title" in the title becomes artist and title, underscores become spaces. */
 fun smartClean(t: Track): Track {
