@@ -9,11 +9,11 @@ data class Prefs(
     // Appearance
     val themeMode: Int = 0, // 0 system, 1 light, 2 dark
     val pureBlack: Boolean = false,
-    val dynamicColor: Boolean = false,
+    val dynamicColor: Boolean = true,
     val hue: Float = 285f,
     val vibrancy: Float = 1f,
     val artColors: Boolean = true,
-    val corners: Int = 2, // 0 sharp, 1 soft, 2 round, 3 pill
+    val corners: Int = 1, // 0 sharp, 1 soft, 2 round, 3 pill
     val font: Int = 0, // 0 Google Sans Flex, 1 system, 2 serif, 3 mono, 4 custom file
     val fontWidth: Float = 100f, // Google Sans Flex width axis
     val fontRound: Float = 0f, // Google Sans Flex roundness axis
@@ -33,6 +33,7 @@ data class Prefs(
     val skipSilence: Boolean = false,
     val pauseOnUnplug: Boolean = true,
     val restoreSession: Boolean = true,
+    val vinylSync: Boolean = true, // speed and pitch move together
     // Library
     val showListArt: Boolean = true,
     val compactList: Boolean = false,
@@ -70,11 +71,11 @@ class SettingsStore private constructor(context: Context) {
         return Prefs(
             themeMode = sp.getInt("themeMode", d.themeMode),
             pureBlack = sp.getBoolean("pureBlack", d.pureBlack),
-            dynamicColor = sp.getBoolean("dynamicColor", d.dynamicColor),
+            dynamicColor = sp.getBoolean("dynamicColor2", d.dynamicColor),
             hue = sp.getFloat("hue", d.hue),
             vibrancy = sp.getFloat("vibrancy", d.vibrancy),
             artColors = sp.getBoolean("artColors", d.artColors),
-            corners = sp.getInt("corners", d.corners),
+            corners = sp.getInt("corners2", d.corners),
             font = sp.getInt("font2", d.font),
             fontWidth = sp.getFloat("fontWidth", d.fontWidth),
             fontRound = sp.getFloat("fontRound", d.fontRound),
@@ -92,6 +93,7 @@ class SettingsStore private constructor(context: Context) {
             skipSilence = sp.getBoolean("skipSilence", d.skipSilence),
             pauseOnUnplug = sp.getBoolean("pauseOnUnplug", d.pauseOnUnplug),
             restoreSession = sp.getBoolean("restoreSession", d.restoreSession),
+            vinylSync = sp.getBoolean("vinylSync", d.vinylSync),
             showListArt = sp.getBoolean("showListArt", d.showListArt),
             compactList = sp.getBoolean("compactList", d.compactList),
             sortBy = sp.getInt("sortBy", d.sortBy),
@@ -108,11 +110,11 @@ class SettingsStore private constructor(context: Context) {
         sp.edit()
             .putInt("themeMode", p.themeMode)
             .putBoolean("pureBlack", p.pureBlack)
-            .putBoolean("dynamicColor", p.dynamicColor)
+            .putBoolean("dynamicColor2", p.dynamicColor)
             .putFloat("hue", p.hue)
             .putFloat("vibrancy", p.vibrancy)
             .putBoolean("artColors", p.artColors)
-            .putInt("corners", p.corners)
+            .putInt("corners2", p.corners)
             .putInt("font2", p.font)
             .putFloat("fontWidth", p.fontWidth)
             .putFloat("fontRound", p.fontRound)
@@ -130,6 +132,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("skipSilence", p.skipSilence)
             .putBoolean("pauseOnUnplug", p.pauseOnUnplug)
             .putBoolean("restoreSession", p.restoreSession)
+            .putBoolean("vinylSync", p.vinylSync)
             .putBoolean("showListArt", p.showListArt)
             .putBoolean("compactList", p.compactList)
             .putInt("sortBy", p.sortBy)
