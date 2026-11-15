@@ -16,11 +16,14 @@ android {
         targetSdk = 36
         versionCode = 2
         versionName = "2.0"
+    }
 
-        // yt-dlp ships Python and ffmpeg as native libraries, so keep to the one ABI nearly
-        // every modern phone uses. Add "armeabi-v7a" here for old 32-bit phones.
-        ndk {
-            abiFilters += listOf("arm64-v8a")
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = false
         }
     }
 
