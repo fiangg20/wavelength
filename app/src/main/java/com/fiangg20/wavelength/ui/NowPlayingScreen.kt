@@ -49,6 +49,7 @@ import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -57,6 +58,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -87,7 +89,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 @Composable
 fun NowPlayingScreen(vm: PlayerViewModel, onClose: () -> Unit, onOpenEqualizer: () -> Unit) {
@@ -182,6 +186,8 @@ private fun PlayerContent(
 
     var showQueue by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
+    var showSleepDialog by remember { mutableStateOf(false) }
+    var customMinutes by remember { mutableFloatStateOf(20f) }
     var sleepMenu by remember { mutableStateOf(false) }
 
     val view = LocalView.current
@@ -518,6 +524,13 @@ private fun PlayerContent(
                                     },
                                 )
                             }
+                            DropdownMenuItem(
+                                text = { Text("Custom…") },
+                                onClick = {
+                                    sleepMenu = false
+                                    showSleepDialog = true
+                                },
+                            )
                         }
                     }
                 }
@@ -530,6 +543,43 @@ private fun PlayerContent(
 
     if (showSpeed) {
         SpeedSheet(vm = vm, ui = ui, onDismiss = { showSpeed = false })
+    }
+
+    if (showSleepDialog) {
+        AlertDialog(
+            onDismissRequest = { showSleepDialog = false },
+            title = { Text("Sleep timer") },
+            text = {
+                Column {
+                    Text(
+                        text = durationLabel(customMinutes.roundToInt()),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = scheme.primary,
+                    )
+                    Slider(
+                        value = customMinutes,
+                        onValueChange = { customMinutes = it.roundToInt().toFloat() },
+                        valueRange = 1f..240f,
+                    )
+                    Text(
+                        text = "Playback pauses when the time is up.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.setSleepTimer(customMinutes.roundToInt())
+                        showSleepDialog = false
+                    },
+                ) { Text("Start") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSleepDialog = false }) { Text("Cancel") }
+            },
+        )
     }
 
     if (showQueue) {
@@ -563,6 +613,18 @@ private fun PlayerContent(
     }
 }
 
+private fun durationLabel(minutes: Int): String =
+    if (minutes < 60) {
+        "$minutes min"
+    } else {
+        val h = minutes / 60
+        val m = minutes % 60
+        if (m == 0) "$h h" else "$h h $m min"
+    }
+
+private val speedPresets = listOf(0.8f, 1f, 1.25f, 1.35f, 1.5f)
+private val speedPresetLabels = listOf("0.8×", "1×", "1.25×", "1.35× (45 rpm)", "1.5×")
+
 @Composable
 private fun SpeedSheet(vm: PlayerViewModel, ui: PlaybackUi, onDismiss: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
@@ -570,6 +632,13 @@ private fun SpeedSheet(vm: PlayerViewModel, ui: PlaybackUi, onDismiss: () -> Uni
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var speed by remember { mutableFloatStateOf(ui.speed) }
     var pitch by remember { mutableFloatStateOf(ui.pitch) }
+    val sync = prefs.vinylSync
+
+    fun apply(newSpeed: Float, newPitch: Float) {
+        speed = newSpeed
+        pitch = newPitch
+        vm.setSpeedPitch(newSpeed, newPitch)
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -582,18 +651,44 @@ private fun SpeedSheet(vm: PlayerViewModel, ui: PlaybackUi, onDismiss: () -> Uni
                 .padding(start = 24.dp, end = 24.dp, bottom = 32.dp)
         ) {
             Text("Speed and pitch", style = MaterialTheme.typography.headlineSmall)
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
 
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Vinyl mode", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Speed and pitch move together, like a record on a turntable",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = sync,
+                    onCheckedChange = { v ->
+                        vm.updatePrefs { it.copy(vinylSync = v) }
+                        if (v) apply(speed, speed)
+                    },
+                )
+            }
+
+            Spacer(Modifier.height(14.dp))
+            SinglePills(
+                options = speedPresetLabels,
+                selected = speedPresets.indexOfFirst { abs(it - speed) < 0.01f },
+                onSelect = { i ->
+                    val v = speedPresets[i]
+                    if (sync) apply(v, v) else apply(v, pitch)
+                },
+            )
+
+            Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Speed", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 Text(speedLabel(speed), style = MaterialTheme.typography.labelLarge, color = scheme.primary)
             }
             Slider(
                 value = speed,
-                onValueChange = {
-                    speed = it
-                    vm.setSpeedPitch(speed, pitch)
-                },
+                onValueChange = { v -> if (sync) apply(v, v) else apply(v, pitch) },
                 valueRange = 0.5f..2f,
             )
 
@@ -603,10 +698,7 @@ private fun SpeedSheet(vm: PlayerViewModel, ui: PlaybackUi, onDismiss: () -> Uni
             }
             Slider(
                 value = pitch,
-                onValueChange = {
-                    pitch = it
-                    vm.setSpeedPitch(speed, pitch)
-                },
+                onValueChange = { v -> if (sync) apply(v, v) else apply(speed, v) },
                 valueRange = 0.5f..2f,
             )
 
@@ -628,11 +720,7 @@ private fun SpeedSheet(vm: PlayerViewModel, ui: PlaybackUi, onDismiss: () -> Uni
 
             Spacer(Modifier.height(16.dp))
             ExpressiveButton(
-                onClick = {
-                    speed = 1f
-                    pitch = 1f
-                    vm.setSpeedPitch(1f, 1f)
-                },
+                onClick = { apply(1f, 1f) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
