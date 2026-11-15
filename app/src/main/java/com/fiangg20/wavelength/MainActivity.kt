@@ -73,6 +73,7 @@ import com.fiangg20.wavelength.ui.MiniPlayer
 import com.fiangg20.wavelength.ui.NowPlayingScreen
 import com.fiangg20.wavelength.ui.PlayerViewModel
 import com.fiangg20.wavelength.ui.PlaylistScreen
+import com.fiangg20.wavelength.ui.SettingsCategoryScreen
 import com.fiangg20.wavelength.ui.SettingsScreen
 import com.fiangg20.wavelength.ui.WavelengthTheme
 
@@ -213,7 +214,7 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
     val artists by vm.artists.collectAsStateWithLifecycle()
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    // Navigation stack. "" is the library; others: settings, eq, downloads, dlsettings, album:<id>, artist:<name>, playlist:<id>
+    // Navigation stack. "" is the library; others: settings, settings/<page>, eq, downloads, dlsettings, album:<id>, artist:<name>, playlist:<id>
     var stackRaw by rememberSaveable { mutableStateOf("") }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
     var dlPrefill by rememberSaveable { mutableStateOf("") }
@@ -263,12 +264,18 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
         ) { s ->
             when {
                 s == "settings" -> SettingsScreen(
-                    prefs = prefs,
-                    onChange = { vm.updatePrefs(it) },
                     onBack = { pop() },
+                    onOpenCategory = { push("settings/$it") },
                     onOpenEqualizer = { push("eq") },
                     onOpenDownloads = { push("downloads") },
                     onOpenDownloadSettings = { push("dlsettings") },
+                    bottomPad = bottomPad,
+                )
+                s.startsWith("settings/") -> SettingsCategoryScreen(
+                    category = s.removePrefix("settings/"),
+                    prefs = prefs,
+                    onChange = { vm.updatePrefs(it) },
+                    onBack = { pop() },
                     bottomPad = bottomPad,
                 )
                 s == "eq" -> EqualizerScreen(onBack = { pop() }, bottomPad = bottomPad)
