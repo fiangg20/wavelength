@@ -108,6 +108,12 @@ fun SettingsScreen(
                     onChange = { v -> onChange { it.copy(vibrancy = v) } },
                 )
                 SwitchRow(
+                    title = "Adaptive app icon",
+                    subtitle = "The home screen icon takes your accent colour. Your launcher may need a few seconds to refresh it.",
+                    checked = prefs.adaptiveIcon,
+                    onChecked = { v -> onChange { it.copy(adaptiveIcon = v) } },
+                )
+                SwitchRow(
                     title = "Colours from artwork",
                     subtitle = "The player takes its palette from the album cover",
                     checked = prefs.artColors,

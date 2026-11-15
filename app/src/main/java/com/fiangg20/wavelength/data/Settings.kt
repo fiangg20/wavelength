@@ -11,6 +11,7 @@ data class Prefs(
     val pureBlack: Boolean = false,
     val dynamicColor: Boolean = true,
     val hue: Float = 285f,
+    val adaptiveIcon: Boolean = true, // launcher icon colour follows the accent
     val vibrancy: Float = 1f,
     val artColors: Boolean = true,
     val corners: Int = 1, // 0 sharp, 1 soft, 2 round, 3 pill
@@ -73,6 +74,7 @@ class SettingsStore private constructor(context: Context) {
             pureBlack = sp.getBoolean("pureBlack", d.pureBlack),
             dynamicColor = sp.getBoolean("dynamicColor2", d.dynamicColor),
             hue = sp.getFloat("hue", d.hue),
+            adaptiveIcon = sp.getBoolean("adaptiveIcon", d.adaptiveIcon),
             vibrancy = sp.getFloat("vibrancy", d.vibrancy),
             artColors = sp.getBoolean("artColors", d.artColors),
             corners = sp.getInt("corners2", d.corners),
@@ -112,6 +114,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("pureBlack", p.pureBlack)
             .putBoolean("dynamicColor2", p.dynamicColor)
             .putFloat("hue", p.hue)
+            .putBoolean("adaptiveIcon", p.adaptiveIcon)
             .putFloat("vibrancy", p.vibrancy)
             .putBoolean("artColors", p.artColors)
             .putInt("corners2", p.corners)

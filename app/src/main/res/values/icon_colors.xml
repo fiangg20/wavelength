@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launcher icon backgrounds, one per accent hue (the app switches between them) -->
+    <color name="icon_bg_015">#9A273C</color>
+    <color name="icon_bg_045">#903A03</color>
+    <color name="icon_bg_075">#774F02</color>
+    <color name="icon_bg_105">#605A04</color>
+    <color name="icon_bg_135">#336701</color>
+    <color name="icon_bg_165">#02684A</color>
+    <color name="icon_bg_195">#026565</color>
+    <color name="icon_bg_225">#04617C</color>
+    <color name="icon_bg_255">#0256A9</color>
+    <color name="icon_bg_285">#5346A7</color>
+    <color name="icon_bg_315">#763790</color>
+    <color name="icon_bg_345">#8E2B6B</color>
+    <!-- Used when wallpaper colours are off or unavailable -->
+    <color name="icon_bg_dynamic">#3A2BB5</color>
+</resources>

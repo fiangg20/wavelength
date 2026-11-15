@@ -58,6 +58,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
 import com.fiangg20.wavelength.audio.AudioFx
 import com.fiangg20.wavelength.ui.CookieShape
 import com.fiangg20.wavelength.ui.DownloadSettingsScreen
@@ -85,6 +86,11 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) readShare(intent)
         setContent {
             val prefs by vm.prefs.collectAsStateWithLifecycle()
+            // Wait until the accent stops changing before touching the launcher icon.
+            LaunchedEffect(prefs.hue, prefs.dynamicColor, prefs.adaptiveIcon) {
+                delay(1500L)
+                IconTheme.apply(applicationContext, prefs.hue, prefs.dynamicColor, prefs.adaptiveIcon)
+            }
             WavelengthTheme(prefs) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     Root(vm, sharedText) { sharedText = null }
