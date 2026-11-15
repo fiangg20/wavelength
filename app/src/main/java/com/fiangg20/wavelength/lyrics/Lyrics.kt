@@ -13,22 +13,101 @@ import java.net.URLEncoder
 import kotlin.math.abs
 import kotlin.math.max
 
-data class LyricLine(val timeMs: Long, val text: String)
+/** One word (or syllable) of a line. [endMs] is the moment the next word starts, or -1 when unknown. */
+data class LyricWord(val startMs: Long, val endMs: Long, val text: String)
+
+/** [words] is empty for plain line-synced lyrics; it holds real timing when the file has word stamps. */
+data class LyricLine(
+    val timeMs: Long,
+    val text: String,
+    val words: List<LyricWord> = emptyList(),
+)
 
 /** [synced] is empty when only plain text exists. */
 data class Lyrics(
     val synced: List<LyricLine>,
     val plain: String,
     val source: String,
-)
+) {
+    /** True when the file carries its own word timing (enhanced LRC). */
+    val hasRealWords: Boolean get() = synced.any { it.words.isNotEmpty() }
+
+    /** The lyrics as plain text, for copying and sharing. */
+    fun asText(): String =
+        if (synced.isNotEmpty()) synced.joinToString("\n") { it.text } else plain
+}
 
 data class LyricsResult(val lyrics: Lyrics?, val message: String)
 
-/** Reads the common .lrc format: [mm:ss.xx] text, several stamps per line, and an optional [offset:ms] tag. */
+/**
+ * Reads the common .lrc format: [mm:ss.xx] text, several stamps per line, an optional [offset:ms] tag,
+ * and the "enhanced" form that also times every word: [mm:ss.xx] <mm:ss.xx> word <mm:ss.xx> word
+ */
 object LrcParser {
     private val stamp = Regex("""\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?]""")
     private val offsetTag = Regex("""\[offset:\s*(-?\d+)\s*]""", RegexOption.IGNORE_CASE)
-    private val wordStamp = Regex("""<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>""")
+    private val wordStamp = Regex("""<(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?>""")
+
+    private fun toMs(min: String, sec: String, frac: String): Long {
+        val minutes = min.toLongOrNull() ?: 0L
+        val seconds = sec.toLongOrNull() ?: 0L
+        val millis = when (frac.length) {
+            0 -> 0L
+            1 -> (frac.toLongOrNull() ?: 0L) * 100L
+            2 -> (frac.toLongOrNull() ?: 0L) * 10L
+            else -> frac.take(3).toLongOrNull() ?: 0L
+        }
+        return minutes * 60_000L + seconds * 1000L + millis
+    }
+
+    /** Splits "<t> Hel<t>lo <t> world <t>" into timed words. Returns empty when there are no word stamps. */
+    private fun parseWords(content: String, lineStart: Long): List<LyricWord> {
+        val marks = wordStamp.findAll(content).toList()
+        if (marks.isEmpty()) return emptyList()
+
+        val starts = ArrayList<Long>()
+        val texts = ArrayList<String>()
+
+        // Anything written before the first stamp belongs to the very first moment of the line.
+        val lead = content.substring(0, marks[0].range.first)
+        if (lead.isNotBlank()) {
+            starts.add(lineStart)
+            texts.add(lead)
+        }
+        var trailingEnd = -1L
+        for ((i, m) in marks.withIndex()) {
+            val t = toMs(m.groupValues[1], m.groupValues[2], m.groupValues[3])
+            val from = m.range.last + 1
+            val to = if (i + 1 < marks.size) marks[i + 1].range.first else content.length
+            val piece = content.substring(from, to)
+            if (piece.isBlank()) {
+                // A stamp with nothing after it. At the very end it marks when the last word stops.
+                if (i == marks.lastIndex) trailingEnd = t
+                else if (texts.isNotEmpty() && piece.isNotEmpty()) texts[texts.lastIndex] = texts.last() + " "
+                continue
+            }
+            starts.add(t)
+            texts.add(piece)
+        }
+        if (starts.isEmpty()) return emptyList()
+
+        // Tidy the spacing: a space at the start of a piece belongs to the end of the word before it.
+        for (i in texts.indices) {
+            val raw = texts[i]
+            if (i > 0 && raw.first().isWhitespace() && !texts[i - 1].last().isWhitespace()) {
+                texts[i - 1] = texts[i - 1] + " "
+            }
+            texts[i] = raw.trimStart()
+        }
+        texts[texts.lastIndex] = texts.last().trimEnd()
+
+        val out = ArrayList<LyricWord>()
+        for (i in starts.indices) {
+            val end = if (i + 1 < starts.size) starts[i + 1] else trailingEnd
+            out.add(LyricWord(starts[i], end, texts[i]))
+        }
+        return out.filter { it.text.isNotEmpty() }
+    }
 
     fun parse(text: String): List<LyricLine> {
         val out = ArrayList<LyricLine>()
@@ -42,22 +121,87 @@ object LrcParser {
                 if (off != null) offset = off.groupValues[1].toLongOrNull() ?: 0L
                 continue
             }
-            val content = wordStamp.replace(line.substring(stamps.last().range.last + 1), "").trim()
+            val content = line.substring(stamps.last().range.last + 1)
+            val firstTime = toMs(stamps[0].groupValues[1], stamps[0].groupValues[2], stamps[0].groupValues[3])
+            val baseWords = parseWords(content, firstTime)
+            val shown = if (baseWords.isNotEmpty()) {
+                baseWords.joinToString("") { it.text }.trim()
+            } else {
+                content.trim()
+            }
             for (m in stamps) {
-                val minutes = m.groupValues[1].toLongOrNull() ?: 0L
-                val seconds = m.groupValues[2].toLongOrNull() ?: 0L
-                val frac = m.groupValues[3]
-                val millis = when (frac.length) {
-                    0 -> 0L
-                    1 -> (frac.toLongOrNull() ?: 0L) * 100L
-                    2 -> (frac.toLongOrNull() ?: 0L) * 10L
-                    else -> frac.take(3).toLongOrNull() ?: 0L
+                val t = toMs(m.groupValues[1], m.groupValues[2], m.groupValues[3])
+                // Repeated stamps (a chorus) reuse the same word timing, shifted to each repeat.
+                val shift = t - firstTime - offset
+                val words = baseWords.map {
+                    LyricWord(
+                        max(0L, it.startMs + shift),
+                        if (it.endMs >= 0L) max(0L, it.endMs + shift) else -1L,
+                        it.text,
+                    )
                 }
-                val time = max(0L, minutes * 60_000L + seconds * 1000L + millis - offset)
-                out.add(LyricLine(time, content))
+                out.add(LyricLine(max(0L, t - offset), shown, words))
             }
         }
         return out.sortedBy { it.timeMs }
+    }
+}
+
+/** Works out when each word of a line is sung, from real timing when it exists and by estimate otherwise. */
+object WordTiming {
+    /** mode 0: no word timing, 1: real when the file has it, otherwise estimated, 2: real only. */
+    fun wordsFor(line: LyricLine, nextStartMs: Long, mode: Int): List<LyricWord> {
+        if (mode == 0 || line.text.isBlank()) return emptyList()
+        if (line.words.isNotEmpty()) return resolve(line, nextStartMs)
+        return if (mode == 1) estimate(line, nextStartMs) else emptyList()
+    }
+
+    private fun resolve(line: LyricLine, nextStartMs: Long): List<LyricWord> {
+        val w = line.words
+        return w.mapIndexed { i, word ->
+            val end = when {
+                word.endMs > word.startMs -> word.endMs
+                i + 1 < w.size -> w[i + 1].startMs
+                else -> minOf(
+                    if (nextStartMs > word.startMs) nextStartMs else Long.MAX_VALUE,
+                    word.startMs + 1200L,
+                )
+            }
+            LyricWord(word.startMs, max(end, word.startMs + 1L), word.text)
+        }
+    }
+
+    private val token = Regex("""\S+\s*""")
+
+    private fun isCjk(c: Char): Boolean = c.code in 0x2E80..0xA4CF || c.code in 0xAC00..0xD7AF || c.code in 0xFF00..0xFFEF
+
+    private fun tokens(text: String): List<String> {
+        val trimmed = text.trim()
+        if (trimmed.none { it.isWhitespace() } && trimmed.length > 1 && trimmed.any { isCjk(it) }) {
+            return trimmed.map { it.toString() }
+        }
+        return token.findAll(trimmed).map { it.value }.toList()
+    }
+
+    private fun estimate(line: LyricLine, nextStartMs: Long): List<LyricWord> {
+        val parts = tokens(line.text)
+        if (parts.isEmpty()) return emptyList()
+        val chars = parts.sumOf { it.trim().length }.coerceAtLeast(1)
+        val gap = if (nextStartMs > line.timeMs) nextStartMs - line.timeMs else 5000L
+        // People sing a line in roughly 80 ms per letter; never run into the next line, never stretch over a long break.
+        val natural = chars * 80L + 500L
+        val sing = minOf((gap * 0.95).toLong(), (natural * 1.6).toLong()).coerceAtLeast(400L)
+
+        val total = parts.sumOf { it.trim().length.coerceAtLeast(1) }.toFloat()
+        var cursor = line.timeMs.toFloat()
+        val out = ArrayList<LyricWord>()
+        for (p in parts) {
+            val share = p.trim().length.coerceAtLeast(1) / total
+            val start = cursor.toLong()
+            cursor += share * sing
+            out.add(LyricWord(start, cursor.toLong().coerceAtLeast(start + 1L), p))
+        }
+        return out
     }
 }
 

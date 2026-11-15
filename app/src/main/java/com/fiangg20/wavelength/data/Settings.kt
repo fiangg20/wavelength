@@ -37,6 +37,14 @@ data class Prefs(
     val vinylSync: Boolean = true, // speed and pitch move together
     val lyricsOnline: Boolean = true, // look up lyrics on lrclib.net
     val lyricsSize: Float = 1f,
+    val lyricsWordMode: Int = 1, // 0 line only, 1 words (estimated when the file has no word timing), 2 real word timing only
+    val lyricsAlign: Int = 0, // 0 left, 1 centre, 2 right
+    val lyricsColor: Int = 0, // 0 accent, 1 white, 2 tertiary
+    val lyricsDim: Float = 0.42f, // how bright the lines that are not playing stay
+    val lyricsSpacing: Float = 1f, // gap between lines
+    val lyricsBold: Boolean = true,
+    val lyricsZoom: Boolean = true, // the playing line is a little bigger
+    val lyricsShiftMs: Int = 120, // global timing nudge for every song
     // Library
     val showListArt: Boolean = true,
     val compactList: Boolean = false,
@@ -100,6 +108,14 @@ class SettingsStore private constructor(context: Context) {
             vinylSync = sp.getBoolean("vinylSync", d.vinylSync),
             lyricsOnline = sp.getBoolean("lyricsOnline", d.lyricsOnline),
             lyricsSize = sp.getFloat("lyricsSize", d.lyricsSize),
+            lyricsWordMode = sp.getInt("lyricsWordMode", d.lyricsWordMode),
+            lyricsAlign = sp.getInt("lyricsAlign", d.lyricsAlign),
+            lyricsColor = sp.getInt("lyricsColor", d.lyricsColor),
+            lyricsDim = sp.getFloat("lyricsDim", d.lyricsDim),
+            lyricsSpacing = sp.getFloat("lyricsSpacing", d.lyricsSpacing),
+            lyricsBold = sp.getBoolean("lyricsBold", d.lyricsBold),
+            lyricsZoom = sp.getBoolean("lyricsZoom", d.lyricsZoom),
+            lyricsShiftMs = sp.getInt("lyricsShiftMs", d.lyricsShiftMs),
             showListArt = sp.getBoolean("showListArt", d.showListArt),
             compactList = sp.getBoolean("compactList", d.compactList),
             sortBy = sp.getInt("sortBy", d.sortBy),
@@ -142,6 +158,14 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("vinylSync", p.vinylSync)
             .putBoolean("lyricsOnline", p.lyricsOnline)
             .putFloat("lyricsSize", p.lyricsSize)
+            .putInt("lyricsWordMode", p.lyricsWordMode)
+            .putInt("lyricsAlign", p.lyricsAlign)
+            .putInt("lyricsColor", p.lyricsColor)
+            .putFloat("lyricsDim", p.lyricsDim)
+            .putFloat("lyricsSpacing", p.lyricsSpacing)
+            .putBoolean("lyricsBold", p.lyricsBold)
+            .putBoolean("lyricsZoom", p.lyricsZoom)
+            .putInt("lyricsShiftMs", p.lyricsShiftMs)
             .putBoolean("showListArt", p.showListArt)
             .putBoolean("compactList", p.compactList)
             .putInt("sortBy", p.sortBy)

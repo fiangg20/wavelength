@@ -260,12 +260,18 @@ fun SettingsScreen(
                     onChecked = { v -> onChange { it.copy(lyricsOnline = v) } },
                 )
                 SliderRow(
-                    title = "Lyrics size",
-                    valueText = "${(prefs.lyricsSize * 100).toInt()}%",
-                    value = prefs.lyricsSize,
-                    range = 0.8f..1.5f,
-                    onChange = { v -> onChange { it.copy(lyricsSize = v) } },
+                    title = "Timing shift",
+                    valueText = "${if (prefs.lyricsShiftMs > 0) "+" else ""}${prefs.lyricsShiftMs} ms",
+                    value = prefs.lyricsShiftMs.toFloat(),
+                    range = -1000f..1000f,
+                    steps = 39,
+                    onChange = { v -> onChange { it.copy(lyricsShiftMs = (v / 50f).toInt() * 50) } },
                 )
+                Hint("Plus shows every song's lyrics a little earlier, minus a little later. Each song also has its own fine-tune inside the lyrics.")
+            }
+
+            Group {
+                LyricsStyleControls(prefs = prefs, onChange = onChange)
             }
 
             // ---------------- Playback ----------------
