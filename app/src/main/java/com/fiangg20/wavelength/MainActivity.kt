@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -26,7 +27,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -54,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -64,6 +68,8 @@ import com.fiangg20.wavelength.data.Track
 import com.fiangg20.wavelength.ui.AddToPlaylistSheet
 import com.fiangg20.wavelength.ui.CookieShape
 import com.fiangg20.wavelength.ui.DownloadSettingsScreen
+import com.fiangg20.wavelength.ui.FloatingNav
+import com.fiangg20.wavelength.ui.HomeScreen
 import com.fiangg20.wavelength.ui.DownloadsScreen
 import com.fiangg20.wavelength.ui.EqualizerScreen
 import com.fiangg20.wavelength.ui.DetailScreen
@@ -181,6 +187,16 @@ private fun PermissionScreen(onGrant: () -> Unit) {
         }
         Spacer(Modifier.height(32.dp))
         Text("Wavelength", style = MaterialTheme.typography.displaySmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                painter = painterResource(R.drawable.bases_logo),
+                contentDescription = null,
+                tint = scheme.primary,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("by Bases", style = MaterialTheme.typography.titleMedium, color = scheme.primary)
+        }
         Spacer(Modifier.height(8.dp))
         Text(
             "Let Wavelength read the music on your phone so it can build your library. Nothing leaves the device.",
@@ -214,7 +230,9 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
     val artists by vm.artists.collectAsStateWithLifecycle()
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    // Navigation stack. "" is the library; others: settings, settings/<page>, eq, downloads, dlsettings, album:<id>, artist:<name>, playlist:<id>
+    // Which top-level page is showing when the stack is empty: 0 Home, 1 Library.
+    var root by rememberSaveable { mutableIntStateOf(0) }
+    // Navigation stack. "" is Home or Library (see root); others: settings, settings/<page>, eq, downloads, dlsettings, album:<id>, artist:<name>, playlist:<id>
     var stackRaw by rememberSaveable { mutableStateOf("") }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
     var dlPrefill by rememberSaveable { mutableStateOf("") }
@@ -242,9 +260,11 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
 
     BackHandler(enabled = playerOpen) { playerOpen = false }
     BackHandler(enabled = !playerOpen && screen.isNotEmpty()) { pop() }
+    BackHandler(enabled = !playerOpen && screen.isEmpty() && root == 1) { root = 0 }
 
     val miniVisible = ui.hasMedia && ui.current != null
-    val bottomPad = if (miniVisible) 120.dp else 32.dp
+    val navVisible = screen.isEmpty() && !playerOpen
+    val bottomPad = (if (miniVisible) 120.dp else 32.dp) + (if (navVisible) 76.dp else 0.dp)
     val backdrop = MaterialTheme.colorScheme.background
 
     Box(Modifier.fillMaxSize()) {
@@ -341,51 +361,78 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
                     onBack = { pop() },
                     onAddToPlaylist = addToPlaylist,
                 )
-                else -> LibraryScreen(
-                    vm = vm,
-                    tab = tab,
-                    onTab = { tab = it },
-                    onOpenSettings = { push("settings") },
-                    onOpenDownloads = { push("downloads") },
-                    onOpenDetail = { push(it) },
-                    onAddToPlaylist = addToPlaylist,
-                    bottomPad = bottomPad,
-                )
+                else -> Crossfade(
+                    targetState = root,
+                    animationSpec = tween(220),
+                    label = "root",
+                ) { r ->
+                    if (r == 0) {
+                        HomeScreen(
+                            vm = vm,
+                            onOpenSettings = { push("settings") },
+                            onOpenDownloads = { push("downloads") },
+                            onOpenDetail = { push(it) },
+                            onAddToPlaylist = addToPlaylist,
+                            bottomPad = bottomPad,
+                        )
+                    } else {
+                        LibraryScreen(
+                            vm = vm,
+                            tab = tab,
+                            onTab = { tab = it },
+                            onOpenSettings = { push("settings") },
+                            onOpenDownloads = { push("downloads") },
+                            onOpenDetail = { push(it) },
+                            onAddToPlaylist = addToPlaylist,
+                            bottomPad = bottomPad,
+                        )
+                    }
+                }
             }
         }
 
-        // Fade the list out behind the mini player so rows never collide with it.
+        // Mini player and the Home / Library switch share one bar, with a fade behind it so rows never collide.
         AnimatedVisibility(
-            visible = miniVisible && !playerOpen,
+            visible = (miniVisible || navVisible) && !playerOpen,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
-            Box(
+            Column(
                 Modifier
                     .fillMaxWidth()
-                    .height(170.dp)
                     .background(Brush.verticalGradient(listOf(Color.Transparent, backdrop)))
-            )
-        }
-
-        // Mini player
-        AnimatedVisibility(
-            visible = miniVisible && !playerOpen,
-            modifier = Modifier.align(Alignment.BottomCenter),
-            enter = slideInVertically(spring(dampingRatio = 0.7f, stiffness = 350f)) { it } + fadeIn(),
-            exit = slideOutVertically { it } + fadeOut(),
-        ) {
-            MiniPlayer(
-                ui = ui,
-                position = position,
-                onToggle = { vm.togglePlay() },
-                onNext = { vm.next() },
-                onOpen = { playerOpen = true },
-                modifier = Modifier
+                    .padding(top = 48.dp)
                     .navigationBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
-            )
+            ) {
+                AnimatedVisibility(
+                    visible = miniVisible,
+                    enter = slideInVertically(spring(dampingRatio = 0.7f, stiffness = 350f)) { it } + fadeIn(),
+                    exit = slideOutVertically { it } + fadeOut(),
+                ) {
+                    MiniPlayer(
+                        ui = ui,
+                        position = position,
+                        onToggle = { vm.togglePlay() },
+                        onNext = { vm.next() },
+                        onOpen = { playerOpen = true },
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
+                AnimatedVisibility(
+                    visible = navVisible,
+                    enter = slideInVertically(spring(stiffness = 400f)) { it } + fadeIn(),
+                    exit = slideOutVertically { it } + fadeOut(),
+                ) {
+                    FloatingNav(
+                        selected = root,
+                        onSelect = { root = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 40.dp, vertical = 8.dp),
+                    )
+                }
+            }
         }
 
         // Full player

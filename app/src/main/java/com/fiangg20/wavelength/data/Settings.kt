@@ -59,6 +59,11 @@ data class Prefs(
     val artistKeep: String = "AC/DC\nTyler, The Creator", // names that must never be split, one per line
     // Feedback
     val haptics: Boolean = true,
+    // Channels
+    val balance: Float = 0f, // -1 left .. 1 right
+    val leftLevel: Float = 1f,
+    val rightLevel: Float = 1f,
+    val monoAudio: Boolean = false,
 ) {
     val cornerScale: Float
         get() = when (corners) {
@@ -131,6 +136,10 @@ class SettingsStore private constructor(context: Context) {
             artistSeps = sp.getInt("artistSeps", d.artistSeps),
             artistKeep = sp.getString("artistKeep", d.artistKeep) ?: d.artistKeep,
             haptics = sp.getBoolean("haptics", d.haptics),
+            balance = sp.getFloat("balance", d.balance),
+            leftLevel = sp.getFloat("leftLevel", d.leftLevel),
+            rightLevel = sp.getFloat("rightLevel", d.rightLevel),
+            monoAudio = sp.getBoolean("monoAudio", d.monoAudio),
         )
     }
 
@@ -184,6 +193,10 @@ class SettingsStore private constructor(context: Context) {
             .putInt("artistSeps", p.artistSeps)
             .putString("artistKeep", p.artistKeep)
             .putBoolean("haptics", p.haptics)
+            .putFloat("balance", p.balance)
+            .putFloat("leftLevel", p.leftLevel)
+            .putFloat("rightLevel", p.rightLevel)
+            .putBoolean("monoAudio", p.monoAudio)
             .apply()
     }
 

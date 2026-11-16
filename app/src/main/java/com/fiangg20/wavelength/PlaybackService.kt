@@ -1,14 +1,22 @@
 package com.fiangg20.wavelength
 
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.fiangg20.wavelength.audio.AudioFx
+import com.fiangg20.wavelength.audio.BalanceProcessor
+import com.fiangg20.wavelength.audio.ChannelBalance
 import com.fiangg20.wavelength.data.SettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +26,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
+@OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
 
     private var session: MediaSession? = null
@@ -27,7 +36,20 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         AudioFx.init(this)
 
-        val player = ExoPlayer.Builder(this)
+        // A custom audio sink so the channel balance can be applied to the decoded audio.
+        val renderers = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean,
+            ): AudioSink = DefaultAudioSink.Builder(context)
+                .setEnableFloatOutput(enableFloatOutput)
+                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                .setAudioProcessors(arrayOf<AudioProcessor>(BalanceProcessor()))
+                .build()
+        }
+
+        val player = ExoPlayer.Builder(this, renderers)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -56,6 +78,13 @@ class PlaybackService : MediaSessionService() {
                     player.setSkipSilenceEnabled(pair.first)
                     player.setHandleAudioBecomingNoisy(pair.second)
                 }
+        }
+
+        scope.launch {
+            SettingsStore.get(this@PlaybackService).state
+                .map { listOf(it.balance, it.leftLevel, it.rightLevel, if (it.monoAudio) 1f else 0f) }
+                .distinctUntilChanged()
+                .collect { v -> ChannelBalance.set(v[0], v[1], v[2], v[3] > 0.5f) }
         }
 
         val openApp = PendingIntent.getActivity(

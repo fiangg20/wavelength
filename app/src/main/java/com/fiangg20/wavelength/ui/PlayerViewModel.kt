@@ -19,9 +19,11 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.fiangg20.wavelength.PlaybackService
 import com.fiangg20.wavelength.data.Album
+import com.fiangg20.wavelength.data.ArtLoader
 import com.fiangg20.wavelength.data.Artist
 import com.fiangg20.wavelength.data.ArtistConfig
 import com.fiangg20.wavelength.data.Library
+import com.fiangg20.wavelength.data.HistoryStore
 import com.fiangg20.wavelength.data.MusicRepository
 import com.fiangg20.wavelength.data.PlaylistStore
 import com.fiangg20.wavelength.data.PlaylistUi
@@ -37,6 +39,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -93,6 +96,7 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     // ---- playlists ------------------------------------------------------------------------
 
     private val playlistStore = PlaylistStore.get(app)
+    private val history = HistoryStore.get(app)
 
     // ---- library --------------------------------------------------------------------------
 
@@ -120,6 +124,9 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Every song on the phone, after tag clean-up and hidden folders, ignoring search and sorting. */
+    val library: StateFlow<List<Track>> get() = processed
 
     private var lookupSource: List<Track>? = null
     private var lookupMap: Map<Long, Track> = emptyMap()
@@ -193,6 +200,36 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun movePlaylistTrack(id: String, trackId: Long, delta: Int) = playlistStore.move(id, trackId, delta)
 
+    // ---- home -----------------------------------------------------------------------------
+
+    /** Songs you played lately, newest first. */
+    val recentlyPlayed: StateFlow<List<Track>> = combine(history.recent, processed) { ids, all ->
+        val byId = all.associateBy { it.id }
+        ids.mapNotNull { byId[it] }
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Songs you play the most, once they have been played a few times. */
+    val mostPlayed: StateFlow<List<Track>> = combine(history.counts, processed) { counts, all ->
+        val byId = all.associateBy { it.id }
+        counts.entries
+            .filter { it.value >= 2 }
+            .sortedByDescending { it.value }
+            .mapNotNull { byId[it.key] }
+            .take(10)
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** The newest files on the phone, whatever the library is sorted by. */
+    val recentlyAdded: StateFlow<List<Track>> = processed
+        .map { all -> all.sortedByDescending { it.dateAdded }.take(20) }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun clearHistory() = history.clear()
+
     val liked: StateFlow<List<Track>> = combine(tracks, favorites) { list, favs ->
         list.filter { it.id in favs }
     }
@@ -219,6 +256,7 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     fun loadLibrary() {
         viewModelScope.launch {
             loading.value = true
+            ArtLoader.forgetMisses()
             val list = withContext(Dispatchers.IO) {
                 try {
                     MusicRepository.load(app)
@@ -235,6 +273,23 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private val _ui = MutableStateFlow(PlaybackUi())
     val ui: StateFlow<PlaybackUi> = _ui.asStateFlow()
+
+    // A song counts as played once it has been playing for a few seconds.
+    init {
+        viewModelScope.launch {
+            var lastRecorded = -1L
+            _ui.map { Pair(it.current?.id, it.isPlaying) }
+                .distinctUntilChanged()
+                .collectLatest { state ->
+                    val id = state.first
+                    if (id != null && state.second && id != lastRecorded) {
+                        delay(7000L)
+                        lastRecorded = id
+                        history.record(id)
+                    }
+                }
+        }
+    }
 
     private val _position = MutableStateFlow(0L)
     val position: StateFlow<Long> = _position.asStateFlow()

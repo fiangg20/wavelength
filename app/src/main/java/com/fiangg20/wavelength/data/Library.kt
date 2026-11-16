@@ -4,8 +4,10 @@ import android.content.ContentUris
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.LruCache
 import android.util.Size
@@ -76,13 +78,20 @@ object MusicRepository {
 }
 
 object ArtLoader {
-    private val cache = object : LruCache<String, Bitmap>(32 * 1024 * 1024) {
+    private fun cacheBytes(): Int =
+        (Runtime.getRuntime().maxMemory() / 8L).toInt().coerceIn(24 * 1024 * 1024, 64 * 1024 * 1024)
+
+    private val cache = object : LruCache<String, Bitmap>(cacheBytes()) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
-    private val misses = HashSet<String>()
 
-    private fun key(track: Track, px: Int): String =
-        if (track.albumId > 0L) "a${track.albumId}:$px" else "t${track.id}:$px"
+    // Songs that had no artwork, with the time we looked. They get another try after a while.
+    private val misses = HashMap<String, Long>()
+    private const val MISS_TTL_MS = 90_000L
+
+    // Every song has its own key. Songs from the same album id do not always share a cover
+    // (untagged files in one folder all share one id), so sharing a key showed the wrong art.
+    private fun key(track: Track, px: Int): String = "t${track.id}:$px"
 
     fun peek(track: Track, px: Int): Bitmap? = cache.get(key(track, px))
 
@@ -90,46 +99,84 @@ object ArtLoader {
         val k = key(track, px)
         val hit = cache.get(k)
         if (hit != null) return hit
-        val known = synchronized(misses) { misses.contains(k) }
-        if (known) return null
+        val missedAt = synchronized(misses) { misses[k] }
+        if (missedAt != null && SystemClock.elapsedRealtime() - missedAt < MISS_TTL_MS) return null
         val bmp = withContext(Dispatchers.IO) { decode(context, track, px) }
         if (bmp != null) {
             cache.put(k, bmp)
+            synchronized(misses) { misses.remove(k) }
         } else {
-            synchronized(misses) { misses.add(k) }
+            synchronized(misses) { misses[k] = SystemClock.elapsedRealtime() }
         }
         return bmp
     }
 
-    /** Forget "no artwork" results, so freshly downloaded files get a second chance. */
+    /** Forget "no artwork" results, so freshly downloaded or retagged files get another try. */
     fun forgetMisses() {
         synchronized(misses) { misses.clear() }
     }
 
     private fun decode(context: Context, track: Track, px: Int): Bitmap? {
-        return try {
-            if (Build.VERSION.SDK_INT >= 29) {
+        var bmp: Bitmap? = null
+        // 1. The system thumbnail (works on Android 10 and newer).
+        if (Build.VERSION.SDK_INT >= 29) {
+            bmp = try {
                 context.contentResolver.loadThumbnail(track.uri, Size(px, px), null)
-            } else {
-                val artUri = ContentUris.withAppendedId(
-                    Uri.parse("content://media/external/audio/albumart"),
-                    track.albumId,
-                )
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                context.contentResolver.openInputStream(artUri)?.use {
-                    BitmapFactory.decodeStream(it, null, bounds)
-                }
-                var sample = 1
-                while (bounds.outWidth / (sample * 2) >= px && bounds.outHeight / (sample * 2) >= px) {
-                    sample *= 2
-                }
-                val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-                context.contentResolver.openInputStream(artUri)?.use {
-                    BitmapFactory.decodeStream(it, null, opts)
-                }
+            } catch (e: Exception) {
+                null
             }
+        }
+        // 2. The picture stored inside the file itself.
+        if (bmp == null) bmp = embedded(context, track, px)
+        // 3. The album art the media scanner saved, for older phones.
+        if (bmp == null && track.albumId > 0L) bmp = albumArt(context, track, px)
+        return bmp
+    }
+
+    private fun embedded(context: Context, track: Track, px: Int): Bitmap? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, track.uri)
+            val data = retriever.embeddedPicture
+            if (data == null) null else decodeScaled(data, px)
         } catch (e: Exception) {
             null
+        } catch (e: OutOfMemoryError) {
+            null
+        } finally {
+            try {
+                retriever.release()
+            } catch (e: Exception) {
+                // Nothing to clean up.
+            }
         }
+    }
+
+    private fun albumArt(context: Context, track: Track, px: Int): Bitmap? {
+        return try {
+            val artUri = ContentUris.withAppendedId(
+                Uri.parse("content://media/external/audio/albumart"),
+                track.albumId,
+            )
+            val data = context.contentResolver.openInputStream(artUri)?.use { it.readBytes() }
+            if (data == null) null else decodeScaled(data, px)
+        } catch (e: Exception) {
+            null
+        } catch (e: OutOfMemoryError) {
+            null
+        }
+    }
+
+    /** Decodes a picture at about the size asked for, so big covers do not eat memory. */
+    private fun decodeScaled(data: ByteArray, px: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= px && bounds.outHeight / (sample * 2) >= px) {
+            sample *= 2
+        }
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        return BitmapFactory.decodeByteArray(data, 0, data.size, opts)
     }
 }

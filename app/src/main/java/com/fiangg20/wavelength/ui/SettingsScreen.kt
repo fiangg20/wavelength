@@ -48,12 +48,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.fiangg20.wavelength.R
 import com.fiangg20.wavelength.data.ArtistSplitter
 import com.fiangg20.wavelength.data.Prefs
 import java.util.Locale
+import kotlin.math.roundToInt
 
 // ---------------------------------------------------------------------------------------------
 // Categories and search index
@@ -128,6 +131,10 @@ private val entries = listOf(
     Entry("Hide folders", "library", "exclude ignore whatsapp ringtones"),
     // Feel
     Entry("Haptic feedback", "feel", "vibration tick buzz"),
+    Entry("Channel balance", "feel", "left right stereo balance volume speaker earbud"),
+    Entry("Left channel level", "feel", "left volume earbud"),
+    Entry("Right channel level", "feel", "right volume earbud"),
+    Entry("Mono audio", "feel", "mono downmix one earbud single channel"),
     // Tools
     Entry("Equalizer", "tool:eq", "bands presets bass boost loudness virtualizer"),
     Entry("Downloader", "tool:downloads", "yt-dlp youtube save audio mp3 link"),
@@ -163,7 +170,10 @@ private fun resetCategory(key: String, p: Prefs): Prefs {
             sortAsc = d.sortAsc, artistSplit = d.artistSplit, artistSeps = d.artistSeps, artistKeep = d.artistKeep,
             smartTags = d.smartTags, minSeconds = d.minSeconds, excluded = d.excluded,
         )
-        "feel" -> p.copy(haptics = d.haptics)
+        "feel" -> p.copy(
+            haptics = d.haptics, balance = d.balance, leftLevel = d.leftLevel, rightLevel = d.rightLevel,
+            monoAudio = d.monoAudio,
+        )
         else -> p
     }
 }
@@ -236,7 +246,7 @@ fun SettingsScreen(
                 TileRow(
                     CategoryTile("Library", "Lists, sorting, artists, folders", Icons.Rounded.LibraryMusic,
                         scheme.secondaryContainer, scheme.onSecondaryContainer) { goTo("library") },
-                    CategoryTile("Feel", "Haptics", Icons.Rounded.Vibration,
+                    CategoryTile("Feel", "Haptics, channel balance", Icons.Rounded.Vibration,
                         scheme.primaryContainer, scheme.onPrimaryContainer) { goTo("feel") },
                 )
 
@@ -257,9 +267,27 @@ fun SettingsScreen(
 
                 SectionTitle("About")
                 Group {
-                    Text("Wavelength 2.0", style = MaterialTheme.typography.titleMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // The logo is white, so tinting it with the accent makes it follow the theme.
+                        Icon(
+                            painter = painterResource(R.drawable.bases_logo),
+                            contentDescription = "Bases logo",
+                            tint = scheme.primary,
+                            modifier = Modifier.size(56.dp),
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Column {
+                            Text("Wavelength", style = MaterialTheme.typography.titleLarge)
+                            Text(
+                                "by Bases",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = scheme.primary,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
                     Text(
-                        "Material 3 Expressive music player. Downloads are powered by yt-dlp and ffmpeg running on this phone.",
+                        "Version 2.0. Material 3 Expressive music player. Downloads are powered by yt-dlp and ffmpeg running on this phone.",
                         style = MaterialTheme.typography.bodySmall,
                         color = scheme.onSurfaceVariant,
                     )
@@ -776,6 +804,48 @@ private fun FeelSettings(prefs: Prefs, onChange: ((Prefs) -> Prefs) -> Unit) {
             subtitle = "A small tick on button presses",
             checked = prefs.haptics,
             onChecked = { v -> onChange { it.copy(haptics = v) } },
+        )
+    }
+
+    SectionTitle("Channels")
+    Group {
+        val bal = (prefs.balance * 100).roundToInt()
+        SliderRow(
+            title = "Balance",
+            valueText = when {
+                bal == 0 -> "Centre"
+                bal < 0 -> "${-bal}% left"
+                else -> "$bal% right"
+            },
+            value = prefs.balance,
+            range = -1f..1f,
+            steps = 39,
+            onChange = { v ->
+                // Snap to the centre when the thumb is close to it.
+                val snapped = if (kotlin.math.abs(v) < 0.06f) 0f else v
+                onChange { it.copy(balance = snapped) }
+            },
+        )
+        SliderRow(
+            title = "Left channel level",
+            valueText = "${(prefs.leftLevel * 100).roundToInt()}%",
+            value = prefs.leftLevel,
+            range = 0f..1f,
+            onChange = { v -> onChange { it.copy(leftLevel = v) } },
+        )
+        SliderRow(
+            title = "Right channel level",
+            valueText = "${(prefs.rightLevel * 100).roundToInt()}%",
+            value = prefs.rightLevel,
+            range = 0f..1f,
+            onChange = { v -> onChange { it.copy(rightLevel = v) } },
+        )
+        Hint("Turn one side down if one ear or speaker is louder than the other. Balance fades the opposite side, the two levels set each side on its own.")
+        SwitchRow(
+            title = "Mono audio",
+            subtitle = "Plays both channels as one, handy with a single earbud",
+            checked = prefs.monoAudio,
+            onChecked = { v -> onChange { it.copy(monoAudio = v) } },
         )
     }
 }
