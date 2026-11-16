@@ -185,6 +185,7 @@ private fun PermissionScreen(onGrant: () -> Unit) {
                 modifier = Modifier.size(56.dp),
             )
         }
+        Spacer(Modifier.height(8.dp))
         Text(
             "Let Wavelength read the music on your phone so it can build your library. Nothing leaves the device.",
             style = MaterialTheme.typography.bodyLarge,
