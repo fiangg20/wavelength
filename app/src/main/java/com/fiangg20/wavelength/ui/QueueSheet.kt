@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.fiangg20.wavelength.ui
 
 import androidx.compose.foundation.layout.Arrangement
@@ -8,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -26,7 +27,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.max
 
 /** The play queue. Long-press a song to move it, remove it, or send it to the front or back. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QueueSheet(vm: PlayerViewModel, ui: PlaybackUi, onDismiss: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
