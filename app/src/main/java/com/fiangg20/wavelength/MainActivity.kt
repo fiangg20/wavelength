@@ -185,19 +185,6 @@ private fun PermissionScreen(onGrant: () -> Unit) {
                 modifier = Modifier.size(56.dp),
             )
         }
-        Spacer(Modifier.height(32.dp))
-        Text("Wavelength", style = MaterialTheme.typography.displaySmall)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                painter = painterResource(R.drawable.bases_logo),
-                contentDescription = null,
-                tint = scheme.primary,
-                modifier = Modifier.size(22.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text("by Bases", style = MaterialTheme.typography.titleMedium, color = scheme.primary)
-        }
-        Spacer(Modifier.height(8.dp))
         Text(
             "Let Wavelength read the music on your phone so it can build your library. Nothing leaves the device.",
             style = MaterialTheme.typography.bodyLarge,
