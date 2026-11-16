@@ -57,7 +57,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -66,6 +65,10 @@ import kotlinx.coroutines.delay
 import com.fiangg20.wavelength.audio.AudioFx
 import com.fiangg20.wavelength.data.Track
 import com.fiangg20.wavelength.ui.AddToPlaylistSheet
+import com.fiangg20.wavelength.ui.BackupScreen
+import com.fiangg20.wavelength.ui.SearchScreen
+import com.fiangg20.wavelength.ui.StatsScreen
+import com.fiangg20.wavelength.ui.TagEditDialog
 import com.fiangg20.wavelength.ui.CookieShape
 import com.fiangg20.wavelength.ui.DownloadSettingsScreen
 import com.fiangg20.wavelength.ui.FloatingNav
@@ -185,6 +188,8 @@ private fun PermissionScreen(onGrant: () -> Unit) {
                 modifier = Modifier.size(56.dp),
             )
         }
+        Spacer(Modifier.height(32.dp))
+        Text("Wavelength", style = MaterialTheme.typography.displaySmall)
         Spacer(Modifier.height(8.dp))
         Text(
             "Let Wavelength read the music on your phone so it can build your library. Nothing leaves the device.",
@@ -216,11 +221,13 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
     val position by vm.position.collectAsStateWithLifecycle()
     val albums by vm.albums.collectAsStateWithLifecycle()
     val artists by vm.artists.collectAsStateWithLifecycle()
+    val folders by vm.folders.collectAsStateWithLifecycle()
+    val editing by vm.editingTrack.collectAsStateWithLifecycle()
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
     // Which top-level page is showing when the stack is empty: 0 Home, 1 Library.
     var root by rememberSaveable { mutableIntStateOf(0) }
-    // Navigation stack. "" is Home or Library (see root); others: settings, settings/<page>, eq, downloads, dlsettings, album:<id>, artist:<name>, playlist:<id>
+    // Navigation stack. "" is Home or Library (see root); others: settings, settings/<page>, eq, downloads, dlsettings, album:<id>, artist:<name>, playlist:<id>, folder:<path>, search, stats, backup
     var stackRaw by rememberSaveable { mutableStateOf("") }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
     var dlPrefill by rememberSaveable { mutableStateOf("") }
@@ -277,6 +284,8 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
                     onOpenEqualizer = { push("eq") },
                     onOpenDownloads = { push("downloads") },
                     onOpenDownloadSettings = { push("dlsettings") },
+                    onOpenStats = { push("stats") },
+                    onOpenBackup = { push("backup") },
                     bottomPad = bottomPad,
                 )
                 s.startsWith("settings/") -> SettingsCategoryScreen(
@@ -294,6 +303,38 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
                     bottomPad = bottomPad,
                 )
                 s == "dlsettings" -> DownloadSettingsScreen(onBack = { pop() }, bottomPad = bottomPad)
+                s == "stats" -> StatsScreen(vm = vm, onBack = { pop() }, bottomPad = bottomPad)
+                s == "backup" -> BackupScreen(onBack = { pop() }, bottomPad = bottomPad)
+                s == "search" -> SearchScreen(
+                    vm = vm,
+                    onBack = { pop() },
+                    onOpenDetail = { push(it) },
+                    onAddToPlaylist = addToPlaylist,
+                    bottomPad = bottomPad,
+                )
+                s.startsWith("folder:") -> {
+                    val path = s.removePrefix("folder:")
+                    val folder = folders.firstOrNull { it.path == path }
+                    if (folder != null) {
+                        val sorted = folder.tracks.sortedBy { it.title.lowercase() }
+                        DetailScreen(
+                            vm = vm,
+                            onAddToPlaylist = addToPlaylist,
+                            title = folder.name,
+                            subtitle = "${folder.tracks.size} songs · ${folder.path}",
+                            isArtist = false,
+                            tracks = sorted,
+                            ui = ui,
+                            bottomPad = bottomPad,
+                            onBack = { pop() },
+                            onPlay = { vm.playQueue(sorted, it) },
+                            onPlayAll = { vm.playQueue(sorted, 0, shuffle = false) },
+                            onShuffle = { vm.playShuffled(sorted) },
+                        )
+                    } else {
+                        LaunchedEffect(s) { pop() }
+                    }
+                }
                 s.startsWith("album:") -> {
                     val id = s.removePrefix("album:").toLongOrNull()
                     val album = albums.firstOrNull { it.id == id }
@@ -304,6 +345,8 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
                             title = album.title,
                             subtitle = "${album.artist} · ${album.tracks.size} songs",
                             isArtist = false,
+                            onlineArtist = album.artist,
+                            onlineAlbum = album.title,
                             tracks = album.tracks,
                             ui = ui,
                             bottomPad = bottomPad,
@@ -359,6 +402,7 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
                             vm = vm,
                             onOpenSettings = { push("settings") },
                             onOpenDownloads = { push("downloads") },
+                            onOpenSearch = { push("search") },
                             onOpenDetail = { push(it) },
                             onAddToPlaylist = addToPlaylist,
                             bottomPad = bottomPad,
@@ -443,6 +487,17 @@ private fun AppShell(vm: PlayerViewModel, shared: String?, onSharedHandled: () -
         val target = addTarget
         if (target != null) {
             AddToPlaylistSheet(vm = vm, track = target, onDismiss = { addTarget = null })
+        }
+
+        val editTarget = editing
+        if (editTarget != null) {
+            TagEditDialog(
+                track = editTarget,
+                edited = vm.hasTagEdit(editTarget.id),
+                onSave = { t, a, al -> vm.saveTagEdit(editTarget, t, a, al) },
+                onReset = { vm.resetTagEdit(editTarget) },
+                onDismiss = { vm.editingTrack.value = null },
+            )
         }
     }
 }

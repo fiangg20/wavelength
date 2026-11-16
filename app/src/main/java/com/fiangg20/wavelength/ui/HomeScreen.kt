@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,7 +45,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +67,7 @@ fun HomeScreen(
     vm: PlayerViewModel,
     onOpenSettings: () -> Unit,
     onOpenDownloads: () -> Unit,
+    onOpenSearch: () -> Unit,
     onOpenDetail: (String) -> Unit,
     onAddToPlaylist: (Track) -> Unit,
     bottomPad: Dp,
@@ -112,6 +113,16 @@ fun HomeScreen(
                     style = MaterialTheme.typography.headlineLarge,
                     modifier = Modifier.weight(1f),
                 )
+                ExpressiveButton(
+                    onClick = onOpenSearch,
+                    modifier = Modifier.size(52.dp),
+                    containerColor = scheme.surfaceContainerHigh,
+                    contentColor = scheme.onSurface,
+                    restCorner = 26.dp,
+                ) {
+                    Icon(Icons.Rounded.Search, contentDescription = "Search")
+                }
+                Spacer(Modifier.width(8.dp))
                 ExpressiveButton(
                     onClick = onOpenDownloads,
                     modifier = Modifier.size(52.dp),
@@ -443,8 +454,9 @@ private fun TrackCard(track: Track, active: Boolean, shape: Shape, onClick: () -
     Column(
         Modifier
             .width(150.dp)
-            .clip(shape)
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
+            .padding(bottom = 6.dp)
     ) {
         Artwork(
             track = track,
@@ -478,14 +490,17 @@ private fun AlbumCard(album: Album, shape: Shape, onClick: () -> Unit) {
     Column(
         Modifier
             .width(150.dp)
-            .clip(shape)
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
+            .padding(bottom = 6.dp)
     ) {
         AlbumArtwork(
             tracks = album.tracks,
             modifier = Modifier.size(150.dp),
             shape = shape,
             px = 400,
+            onlineArtist = album.artist,
+            onlineAlbum = album.title,
         )
         Spacer(Modifier.height(8.dp))
         Text(
@@ -512,8 +527,9 @@ private fun PlaylistCard(list: HomeList, shape: Shape, onClick: () -> Unit) {
     Column(
         Modifier
             .width(150.dp)
-            .clip(shape)
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
+            .padding(bottom = 6.dp)
     ) {
         Box {
             if (list.heart && list.tracks.isEmpty()) {

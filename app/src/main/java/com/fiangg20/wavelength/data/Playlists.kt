@@ -22,6 +22,14 @@ data class PlaylistUi(
     val tracks: List<Track>,
 )
 
+/** A list the app fills by itself, such as "Never played". Read only. */
+data class SmartList(
+    val id: String, // always starts with "smart:"
+    val title: String,
+    val subtitle: String,
+    val tracks: List<Track>,
+)
+
 /** Id of the built-in "Liked songs" list used in navigation routes. */
 const val LIKED_ID = "liked"
 

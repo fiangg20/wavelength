@@ -16,6 +16,9 @@ object ChannelBalance {
     @Volatile var rightGain: Float = 1f
     @Volatile var mono: Boolean = false
 
+    /** Loudness correction for the song that is playing (ReplayGain), 1 means untouched. */
+    @Volatile var trackGain: Float = 1f
+
     /**
      * @param balance -1 (all left) .. 1 (all right), 0 is the centre.
      * @param left level of the left channel, 0..1
@@ -46,8 +49,8 @@ class BalanceProcessor : BaseAudioProcessor() {
         val size = inputBuffer.remaining()
         if (size == 0) return
         val out = replaceOutputBuffer(size)
-        val gl = ChannelBalance.leftGain
-        val gr = ChannelBalance.rightGain
+        val gl = ChannelBalance.leftGain * ChannelBalance.trackGain
+        val gr = ChannelBalance.rightGain * ChannelBalance.trackGain
         val mono = ChannelBalance.mono
 
         if (inputAudioFormat.encoding == C.ENCODING_PCM_FLOAT) {

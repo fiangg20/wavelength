@@ -75,6 +75,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import com.fiangg20.wavelength.audio.Waveform
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -381,16 +383,35 @@ private fun PlayerContent(
 
                 // Seek bar
                 val progress = if (ui.durationMs > 0L) position.toFloat() / ui.durationMs else 0f
-                WavySeekBar(
-                    progress = progress,
-                    onSeek = { vm.seekToFraction(it) },
-                    isPlaying = ui.isPlaying,
-                    wavy = prefs.progressStyle == 0,
-                    intensity = prefs.waveIntensity,
-                    activeColor = scheme.primary,
-                    trackColor = scheme.secondaryContainer,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
+                if (prefs.progressStyle == 2) {
+                    val context = LocalContext.current
+                    val track = ui.current
+                    val bars by produceState<FloatArray?>(null, track?.id) {
+                        value = null
+                        if (track != null) {
+                            value = Waveform.load(context, track.id, track.uri, track.durationMs)
+                        }
+                    }
+                    WaveformSeekBar(
+                        progress = progress,
+                        onSeek = { vm.seekToFraction(it) },
+                        bars = bars,
+                        activeColor = scheme.primary,
+                        trackColor = scheme.secondaryContainer,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                } else {
+                    WavySeekBar(
+                        progress = progress,
+                        onSeek = { vm.seekToFraction(it) },
+                        isPlaying = ui.isPlaying,
+                        wavy = prefs.progressStyle == 0,
+                        intensity = prefs.waveIntensity,
+                        activeColor = scheme.primary,
+                        trackColor = scheme.secondaryContainer,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -619,33 +640,7 @@ private fun PlayerContent(
     }
 
     if (showQueue) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = { showQueue = false },
-            sheetState = sheetState,
-            containerColor = scheme.surfaceContainerLow,
-        ) {
-            Text(
-                text = "Up next",
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp),
-            )
-            val listState = rememberLazyListState(initialFirstVisibleItemIndex = max(0, ui.index - 2))
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp),
-            ) {
-                itemsIndexed(ui.queue) { i, t ->
-                    TrackRow(
-                        track = t,
-                        active = i == ui.index,
-                        playing = ui.isPlaying,
-                        onClick = { vm.skipTo(i) },
-                    )
-                }
-            }
-        }
+        QueueSheet(vm = vm, ui = ui, onDismiss = { showQueue = false })
     }
 }
 

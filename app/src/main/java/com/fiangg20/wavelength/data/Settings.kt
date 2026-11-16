@@ -35,6 +35,9 @@ data class Prefs(
     val pauseOnUnplug: Boolean = true,
     val restoreSession: Boolean = true,
     val vinylSync: Boolean = true, // speed and pitch move together
+    val replayGain: Boolean = false, // even out loudness using ReplayGain tags in the files
+    val rgPreamp: Float = 0f, // dB added on top of the ReplayGain value
+    val fadeSec: Float = 0f, // seconds of fade at the end and start of songs, 0 is off
     val lyricsOnline: Boolean = true, // look up lyrics on lrclib.net
     val lyricsSize: Float = 1f,
     val lyricsWordMode: Int = 1, // 0 line only, 1 words (estimated when the file has no word timing), 2 real word timing only
@@ -45,6 +48,7 @@ data class Prefs(
     val lyricsBold: Boolean = true,
     val lyricsZoom: Boolean = true, // the playing line is a little bigger
     val lyricsShiftMs: Int = 120, // global timing nudge for every song
+    val lyricsOnDownload: Boolean = true, // fetch lyrics for songs the downloader just saved
     // Library
     val showListArt: Boolean = true,
     val compactList: Boolean = false,
@@ -57,6 +61,7 @@ data class Prefs(
     val artistSplit: Boolean = true, // "RYO, Limbx" becomes two artists
     val artistSeps: Int = 31, // bit mask of the separators in use, see ArtistSplitter.SEPARATORS
     val artistKeep: String = "AC/DC\nTyler, The Creator", // names that must never be split, one per line
+    val onlineImages: Boolean = true, // look up artist and album pictures on the internet when the files have none
     // Feedback
     val haptics: Boolean = true,
     // Channels
@@ -114,6 +119,10 @@ class SettingsStore private constructor(context: Context) {
             pauseOnUnplug = sp.getBoolean("pauseOnUnplug", d.pauseOnUnplug),
             restoreSession = sp.getBoolean("restoreSession", d.restoreSession),
             vinylSync = sp.getBoolean("vinylSync", d.vinylSync),
+            replayGain = sp.getBoolean("replayGain", d.replayGain),
+            rgPreamp = sp.getFloat("rgPreamp", d.rgPreamp),
+            fadeSec = sp.getFloat("fadeSec", d.fadeSec),
+            lyricsOnDownload = sp.getBoolean("lyricsOnDownload", d.lyricsOnDownload),
             lyricsOnline = sp.getBoolean("lyricsOnline", d.lyricsOnline),
             lyricsSize = sp.getFloat("lyricsSize", d.lyricsSize),
             lyricsWordMode = sp.getInt("lyricsWordMode", d.lyricsWordMode),
@@ -135,6 +144,7 @@ class SettingsStore private constructor(context: Context) {
             artistSplit = sp.getBoolean("artistSplit", d.artistSplit),
             artistSeps = sp.getInt("artistSeps", d.artistSeps),
             artistKeep = sp.getString("artistKeep", d.artistKeep) ?: d.artistKeep,
+            onlineImages = sp.getBoolean("onlineImages", d.onlineImages),
             haptics = sp.getBoolean("haptics", d.haptics),
             balance = sp.getFloat("balance", d.balance),
             leftLevel = sp.getFloat("leftLevel", d.leftLevel),
@@ -171,6 +181,10 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("pauseOnUnplug", p.pauseOnUnplug)
             .putBoolean("restoreSession", p.restoreSession)
             .putBoolean("vinylSync", p.vinylSync)
+            .putBoolean("replayGain", p.replayGain)
+            .putFloat("rgPreamp", p.rgPreamp)
+            .putFloat("fadeSec", p.fadeSec)
+            .putBoolean("lyricsOnDownload", p.lyricsOnDownload)
             .putBoolean("lyricsOnline", p.lyricsOnline)
             .putFloat("lyricsSize", p.lyricsSize)
             .putInt("lyricsWordMode", p.lyricsWordMode)
@@ -192,6 +206,7 @@ class SettingsStore private constructor(context: Context) {
             .putBoolean("artistSplit", p.artistSplit)
             .putInt("artistSeps", p.artistSeps)
             .putString("artistKeep", p.artistKeep)
+            .putBoolean("onlineImages", p.onlineImages)
             .putBoolean("haptics", p.haptics)
             .putFloat("balance", p.balance)
             .putFloat("leftLevel", p.leftLevel)

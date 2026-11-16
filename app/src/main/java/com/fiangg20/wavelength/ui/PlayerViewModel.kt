@@ -22,10 +22,18 @@ import com.fiangg20.wavelength.data.Album
 import com.fiangg20.wavelength.data.ArtLoader
 import com.fiangg20.wavelength.data.Artist
 import com.fiangg20.wavelength.data.ArtistConfig
+import com.fiangg20.wavelength.data.FolderUi
+import com.fiangg20.wavelength.data.Folders
 import com.fiangg20.wavelength.data.Library
 import com.fiangg20.wavelength.data.HistoryStore
 import com.fiangg20.wavelength.data.MusicRepository
 import com.fiangg20.wavelength.data.PlaylistStore
+import com.fiangg20.wavelength.data.SmartList
+import com.fiangg20.wavelength.data.ArtistSplitter
+import com.fiangg20.wavelength.data.TagEdit
+import com.fiangg20.wavelength.data.TagEditStore
+import com.fiangg20.wavelength.data.withEdit
+import com.fiangg20.wavelength.lyrics.LyricsRepo
 import com.fiangg20.wavelength.data.PlaylistUi
 import com.fiangg20.wavelength.data.Prefs
 import com.fiangg20.wavelength.data.SettingsStore
@@ -63,6 +71,16 @@ data class PlaybackUi(
     val queue: List<Track> = emptyList(),
     val index: Int = 0,
     val hasMedia: Boolean = false,
+)
+
+data class ListeningStats(
+    val plays: Int = 0,
+    val listenedMs: Long = 0L,
+    val songsPlayed: Int = 0,
+    val librarySongs: Int = 0,
+    val topTracks: List<Pair<Track, Int>> = emptyList(),
+    val topArtists: List<Pair<String, Int>> = emptyList(),
+    val topAlbums: List<Pair<String, Int>> = emptyList(),
 )
 
 class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
@@ -113,13 +131,16 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
         .map { Pair(it.smartTags, it.excluded) }
         .distinctUntilChanged()
 
-    private val processed: StateFlow<List<Track>> = combine(allTracks, processPrefs) { all, pp ->
+    private val tagEdits = TagEditStore.get(app)
+
+    private val processed: StateFlow<List<Track>> = combine(allTracks, processPrefs, tagEdits.state) { all, pp, edits ->
         val skip = pp.second.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
         var list = all
         if (skip.isNotEmpty()) {
             list = list.filter { t -> skip.none { t.folder.contains(it, ignoreCase = true) } }
         }
         if (pp.first) list = list.map { smartClean(it) }
+        if (edits.isNotEmpty()) list = list.map { it.withEdit(edits[it.id]) }
         list
     }
         .flowOn(Dispatchers.Default)
@@ -230,6 +251,106 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun clearHistory() = history.clear()
 
+    // ---- recent searches ------------------------------------------------------------------
+
+    private val _searches = MutableStateFlow(
+        (statePrefs.getString("searches", "") ?: "").split('\u001F').filter { it.isNotBlank() }
+    )
+    val recentSearches: StateFlow<List<String>> = _searches.asStateFlow()
+
+    fun rememberSearch(query: String) {
+        val q = query.trim()
+        if (q.length < 2) return
+        val next = (listOf(q) + _searches.value.filter { !it.equals(q, ignoreCase = true) }).take(8)
+        _searches.value = next
+        statePrefs.edit().putString("searches", next.joinToString("\u001F")).apply()
+    }
+
+    fun clearSearches() {
+        _searches.value = emptyList()
+        statePrefs.edit().remove("searches").apply()
+    }
+
+    /** Lists the app builds by itself from what is on the phone and what you play. */
+    val smartLists: StateFlow<List<SmartList>> = combine(processed, history.counts) { all, counts ->
+        val out = ArrayList<SmartList>()
+        val newest = all.sortedByDescending { it.dateAdded }.take(50)
+        if (newest.isNotEmpty()) out.add(SmartList("smart:recent", "Recently added", "The 50 newest files", newest))
+        val top = counts.entries.sortedByDescending { it.value }.take(50)
+        val byId = all.associateBy { it.id }
+        val topTracks = top.mapNotNull { byId[it.key] }
+        if (topTracks.isNotEmpty()) out.add(SmartList("smart:top", "Most played", "Your top songs", topTracks))
+        val never = all.filter { it.id !in counts }.sortedByDescending { it.dateAdded }.take(300)
+        if (never.isNotEmpty()) out.add(SmartList("smart:never", "Never played", "Songs you have not played yet", never))
+        val long = all.filter { it.durationMs >= 6 * 60_000L }.sortedByDescending { it.durationMs }.take(200)
+        if (long.isNotEmpty()) out.add(SmartList("smart:long", "Long songs", "Six minutes or more", long))
+        out
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    // ---- tag editor -----------------------------------------------------------------------
+
+    /** The song whose info is being edited, or null when no editor is open. */
+    val editingTrack = MutableStateFlow<Track?>(null)
+    fun editInfo(track: Track) {
+        editingTrack.value = track
+    }
+
+    fun saveTagEdit(track: Track, title: String, artist: String, album: String) {
+        // Only fields that differ from the file's own tags are stored, so "reset" is always possible.
+        val original = allTracks.value.firstOrNull { it.id == track.id }
+        val base = original?.let { if (store.state.value.smartTags) smartClean(it) else it } ?: track
+        tagEdits.set(
+            track.id,
+            TagEdit(
+                title = title.trim().takeIf { it.isNotEmpty() && it != base.title },
+                artist = artist.trim().takeIf { it.isNotEmpty() && it != base.artist },
+                album = album.trim().takeIf { it.isNotEmpty() && it != base.album },
+            ),
+        )
+        editingTrack.value = null
+        toast("Saved")
+    }
+
+    fun resetTagEdit(track: Track) {
+        tagEdits.clear(track.id)
+        editingTrack.value = null
+        toast("Back to the tags in the file")
+    }
+
+    fun hasTagEdit(id: Long): Boolean = tagEdits.state.value.containsKey(id)
+
+    // ---- stats ----------------------------------------------------------------------------
+
+    val stats: StateFlow<ListeningStats> = combine(history.counts, processed, artistConfig()) { counts, all, cfg ->
+        val byId = all.associateBy { it.id }
+        var plays = 0
+        var ms = 0L
+        val perArtist = HashMap<String, Int>()
+        val perAlbum = HashMap<String, Int>()
+        val tracks = ArrayList<Pair<Track, Int>>()
+        for ((id, n) in counts) {
+            val t = byId[id] ?: continue
+            plays += n
+            ms += t.durationMs * n
+            tracks.add(t to n)
+            for (a in ArtistSplitter.split(t.artist, cfg)) perArtist[a] = (perArtist[a] ?: 0) + n
+            if (t.album.isNotBlank()) perAlbum[t.album] = (perAlbum[t.album] ?: 0) + n
+        }
+        ListeningStats(
+            plays = plays,
+            listenedMs = ms,
+            songsPlayed = tracks.size,
+            librarySongs = all.size,
+            topTracks = tracks.sortedByDescending { it.second }.take(10),
+            topArtists = perArtist.entries.sortedByDescending { it.value }.take(10).map { it.key to it.value },
+            topAlbums = perAlbum.entries.sortedByDescending { it.value }.take(5).map { it.key to it.value },
+        )
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ListeningStats())
+
     val liked: StateFlow<List<Track>> = combine(tracks, favorites) { list, favs ->
         list.filter { it.id in favs }
     }
@@ -237,35 +358,56 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // How artist names are split decides how albums and artists are grouped.
-    private val artistConfig = prefs
+    private fun artistConfig() = prefs
         .map { ArtistConfig.from(it) }
         .distinctUntilChanged()
 
-    val albums: StateFlow<List<Album>> = combine(tracks, artistConfig) { list, cfg ->
+    val albums: StateFlow<List<Album>> = combine(tracks, artistConfig()) { list, cfg ->
         Library.albums(list, cfg)
     }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val artists: StateFlow<List<Artist>> = combine(tracks, artistConfig) { list, cfg ->
+    val artists: StateFlow<List<Artist>> = combine(tracks, artistConfig()) { list, cfg ->
         Library.artists(list, cfg)
     }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    val folders: StateFlow<List<FolderUi>> = tracks
+        .map { Folders.group(it) }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     fun loadLibrary() {
-        viewModelScope.launch {
-            loading.value = true
-            ArtLoader.forgetMisses()
-            val list = withContext(Dispatchers.IO) {
-                try {
-                    MusicRepository.load(app)
-                } catch (e: Exception) {
-                    emptyList()
-                }
+        viewModelScope.launch { reloadLibrary() }
+    }
+
+    private suspend fun reloadLibrary() {
+        loading.value = true
+        ArtLoader.forgetMisses()
+        val list = withContext(Dispatchers.IO) {
+            try {
+                MusicRepository.load(app)
+            } catch (e: Exception) {
+                emptyList()
             }
-            allTracks.value = list
-            loading.value = false
+        }
+        allTracks.value = list
+        loading.value = false
+    }
+
+    /** Looks up lyrics for songs that were not in the library before, so a fresh download is ready to sing along. */
+    private suspend fun fetchLyricsForNew(before: Set<Long>) {
+        val p = store.state.value
+        if (!p.lyricsOnDownload || !p.lyricsOnline) return
+        val fresh = processed.value.filter { it.id !in before }.take(30)
+        for (t in fresh) {
+            try {
+                LyricsRepo.load(app, t, online = true, force = false)
+            } catch (e: Exception) {
+                // One failed lookup should not stop the rest.
+            }
         }
     }
 
@@ -367,7 +509,9 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             DownloadManager.finished.collect {
                 delay(800L)
-                loadLibrary()
+                val before = allTracks.value.map { it.id }.toSet()
+                reloadLibrary()
+                fetchLyricsForNew(before)
             }
         }
     }
@@ -549,6 +693,31 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     fun skipTo(index: Int) = withController { c ->
         c.seekTo(index, 0L)
         c.play()
+    }
+
+    // ---- queue editing --------------------------------------------------------------------
+
+    fun moveQueueItem(from: Int, to: Int) = withController { c ->
+        if (from in 0 until c.mediaItemCount && to in 0 until c.mediaItemCount && from != to) {
+            c.moveMediaItem(from, to)
+        }
+    }
+
+    fun removeQueueItem(index: Int) = withController { c ->
+        if (index in 0 until c.mediaItemCount) c.removeMediaItem(index)
+    }
+
+    /** Drops everything after the song that is playing. */
+    fun clearUpcoming() = withController { c ->
+        val from = c.currentMediaItemIndex + 1
+        if (from < c.mediaItemCount) c.removeMediaItems(from, c.mediaItemCount)
+    }
+
+    fun saveQueueAsPlaylist(name: String) {
+        val ids = _ui.value.queue.map { it.id }.filter { it > 0L }
+        if (ids.isEmpty()) return
+        playlistStore.create(name, ids)
+        toast("Saved as $name")
     }
 
     fun toggleShuffle() = withController { it.shuffleModeEnabled = !it.shuffleModeEnabled }

@@ -14,10 +14,23 @@ android {
         applicationId = "com.fiangg20.wavelength"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "2.0"
+        // Every CI run gets a higher number, so each new build counts as an update of the one before.
+        versionCode = 100 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0)
+        versionName = "2.1"
     }
 
+    // A fixed signing key. Android only installs an APK over an older one when both were signed with
+    // the same key; the random debug key GitHub makes on every run is why updates used to fail.
+    signingConfigs {
+        create("wavelength") {
+            storeFile = file("wavelength.keystore")
+            storePassword = "wavelength"
+            keyAlias = "wavelength"
+            keyPassword = "wavelength"
+        }
+    }
+
+    // One APK per CPU type keeps each download small (arm64 for modern phones, arm32 for old ones).
     splits {
         abi {
             isEnable = true
@@ -28,8 +41,12 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("wavelength")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("wavelength")
         }
     }
 

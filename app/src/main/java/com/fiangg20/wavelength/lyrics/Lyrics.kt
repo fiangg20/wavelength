@@ -233,6 +233,59 @@ object LyricsRepo {
         }
     }
 
+    /** Finds saved lyrics that contain [query]. Returns song id and the matching line, at most [limit] hits. */
+    fun searchCached(context: Context, query: String, limit: Int = 25): List<Pair<Long, String>> {
+        val q = query.trim()
+        if (q.length < 3) return emptyList()
+        val out = ArrayList<Pair<Long, String>>()
+        val files = dir(context).listFiles() ?: return emptyList()
+        for (f in files) {
+            if (out.size >= limit) break
+            val name = f.name
+            val isLrc = name.endsWith(".lrc")
+            if (!isLrc && !name.endsWith(".txt")) continue
+            val id = name.substringBefore('.').toLongOrNull() ?: continue
+            try {
+                val text = f.readText()
+                val lines = if (isLrc) LrcParser.parse(text).map { it.text } else text.lines()
+                val hit = lines.firstOrNull { it.contains(q, ignoreCase = true) }
+                if (hit != null) out.add(id to hit.trim())
+            } catch (e: Exception) {
+                // An unreadable file simply does not match.
+            }
+        }
+        return out
+    }
+
+    /** Every saved lyric file as name to text, used by backups. */
+    fun exportAll(context: Context): Map<String, String> {
+        val out = LinkedHashMap<String, String>()
+        val files = dir(context).listFiles() ?: return out
+        for (f in files) {
+            if (f.name.endsWith(".lrc") || f.name.endsWith(".txt")) {
+                try {
+                    out[f.name] = f.readText()
+                } catch (e: Exception) {
+                    // Skip it.
+                }
+            }
+        }
+        return out
+    }
+
+    fun importAll(context: Context, files: Map<String, String>) {
+        val d = dir(context)
+        for ((name, text) in files) {
+            // Only plain "<id>.lrc" or "<id>.txt" names are accepted.
+            if (!Regex("""\d+\.(lrc|txt)""").matches(name)) continue
+            try {
+                File(d, name).writeText(text)
+            } catch (e: Exception) {
+                // Skip it.
+            }
+        }
+    }
+
     fun forget(context: Context, id: Long) {
         File(dir(context), "$id.lrc").delete()
         File(dir(context), "$id.txt").delete()

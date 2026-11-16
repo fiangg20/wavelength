@@ -63,6 +63,7 @@ fun rememberTrackActions(vm: PlayerViewModel, onAddToPlaylist: (Track) -> Unit):
             onAddToQueue = { vm.addToQueue(t) },
             onToggleLike = { vm.toggleFavorite(t.id) },
             onAddToPlaylist = { onAddToPlaylist(t) },
+            onEditInfo = { vm.editInfo(t) },
         )
     }
 }
@@ -180,6 +181,7 @@ fun PlaylistsTab(vm: PlayerViewModel, bottomPad: Dp, onOpen: (String) -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val lists by vm.playlists.collectAsStateWithLifecycle()
     val liked by vm.liked.collectAsStateWithLifecycle()
+    val smart by vm.smartLists.collectAsStateWithLifecycle()
     var creating by remember { mutableStateOf(false) }
 
     LazyColumn(
@@ -234,6 +236,36 @@ fun PlaylistsTab(vm: PlayerViewModel, bottomPad: Dp, onOpen: (String) -> Unit) {
                 },
             )
         }
+        if (smart.isNotEmpty()) {
+            item(key = "smartTitle") {
+                Text(
+                    "Smart lists",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = scheme.primary,
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 20.dp, bottom = 6.dp),
+                )
+            }
+            items(smart, key = { it.id }) { l ->
+                ListRow(
+                    title = l.title,
+                    subtitle = "${songsLabel(l.tracks.size)} · ${l.subtitle}",
+                    onClick = { onOpen(l.id) },
+                    leading = {
+                        val first = l.tracks.firstOrNull()
+                        if (first == null) {
+                            EmptyTile()
+                        } else {
+                            Artwork(
+                                track = first,
+                                modifier = Modifier.size(54.dp),
+                                shape = CookieShape(8, 0.12f),
+                                px = 160,
+                            )
+                        }
+                    },
+                )
+            }
+        }
         if (lists.isEmpty()) {
             item(key = "hint") {
                 Text(
@@ -282,14 +314,26 @@ fun PlaylistScreen(
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
 
+    val smartLists by vm.smartLists.collectAsStateWithLifecycle()
     val isLiked = id == LIKED_ID
+    val smart = if (id.startsWith("smart:")) smartLists.firstOrNull { it.id == id } else null
+    val readOnly = isLiked || id.startsWith("smart:")
     val playlist = lists.firstOrNull { it.id == id }
 
     // A brand-new list can take a moment to reach this screen, so just draw nothing until it does.
-    if (playlist == null && !isLiked) return
+    if (playlist == null && !readOnly) return
+    if (id.startsWith("smart:") && smart == null) return
 
-    val tracks = if (isLiked) liked else (playlist?.tracks ?: emptyList())
-    val name = if (isLiked) "Liked songs" else (playlist?.name ?: "")
+    val tracks = when {
+        isLiked -> liked
+        smart != null -> smart.tracks
+        else -> playlist?.tracks ?: emptyList()
+    }
+    val name = when {
+        isLiked -> "Liked songs"
+        smart != null -> smart.title
+        else -> playlist?.name ?: ""
+    }
 
     Column(
         Modifier
@@ -312,7 +356,7 @@ fun PlaylistScreen(
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, null)
             }
             Spacer(Modifier.weight(1f))
-            if (!isLiked) {
+            if (!readOnly) {
                 Box {
                     ExpressiveButton(
                         onClick = { menu = true },
@@ -413,7 +457,9 @@ fun PlaylistScreen(
             if (tracks.isEmpty()) {
                 item(key = "empty") {
                     Text(
-                        if (isLiked) {
+                        if (readOnly && !isLiked) {
+                            "Nothing here right now."
+                        } else if (isLiked) {
                             "Nothing liked yet. Tap the heart in the player, or long-press a song."
                         } else {
                             "No songs yet. Long-press any song and choose Add to playlist."
@@ -435,7 +481,7 @@ fun PlaylistScreen(
             }
             itemsIndexed(tracks, key = { _, t -> t.id }) { index, t ->
                 val base = actionsFor(t)
-                val actions = if (isLiked) {
+                val actions = if (readOnly) {
                     base
                 } else {
                     base.copy(

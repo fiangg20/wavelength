@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.GraphicEq
@@ -72,6 +74,8 @@ private fun categoryTitle(key: String): String = when (key) {
     "tool:eq" -> "Equalizer"
     "tool:downloads" -> "Downloader"
     "tool:dlsettings" -> "Downloader settings"
+    "tool:stats" -> "Listening stats"
+    "tool:backup" -> "Backup & restore"
     else -> "Settings"
 }
 
@@ -105,6 +109,7 @@ private val entries = listOf(
     Entry("Mini player progress line", "player", "bar"),
     // Lyrics
     Entry("Find lyrics online", "lyrics", "lrclib internet download"),
+    Entry("Fetch lyrics for downloads", "lyrics", "download automatic new songs"),
     Entry("Timing shift", "lyrics", "offset delay sync early late"),
     Entry("Word highlight", "lyrics", "karaoke word by word sync estimated"),
     Entry("Lyrics alignment", "lyrics", "left centre center right"),
@@ -116,6 +121,9 @@ private val entries = listOf(
     Entry("Zoom playing line", "lyrics", "scale bigger"),
     // Playback
     Entry("Skip silence", "playback", "gaps quiet"),
+    Entry("Even out loudness", "playback", "replaygain replay gain normalize volume loud quiet"),
+    Entry("ReplayGain preamp", "playback", "boost cut db loudness"),
+    Entry("Fade between songs", "playback", "crossfade fade in out seconds"),
     Entry("Pause when headphones unplug", "playback", "bluetooth wired"),
     Entry("Restore last queue", "playback", "session resume reopen"),
     // Library
@@ -124,6 +132,7 @@ private val entries = listOf(
     Entry("Album grid", "library", "compact cozy large size"),
     Entry("Sort songs by", "library", "title artist album recently added length order"),
     Entry("Ascending order", "library", "sort reverse descending"),
+    Entry("Pictures from the internet", "library", "artist photo album cover online deezer download image"),
     Entry("Split artist names", "library", "separator comma feat multiple artists"),
     Entry("Never split these names", "library", "artist exception keep ac/dc"),
     Entry("Fix untagged files", "library", "smart tags filename underscores"),
@@ -139,6 +148,8 @@ private val entries = listOf(
     Entry("Equalizer", "tool:eq", "bands presets bass boost loudness virtualizer"),
     Entry("Downloader", "tool:downloads", "yt-dlp youtube save audio mp3 link"),
     Entry("Downloader settings", "tool:dlsettings", "format tags playlists network proxy raw arguments cookies"),
+    Entry("Listening stats", "tool:stats", "top songs artists albums plays time wrapped"),
+    Entry("Backup & restore", "tool:backup", "export import save playlists settings history move phone"),
 )
 
 /** Puts one page of settings back to what a fresh install has. */
@@ -159,16 +170,16 @@ private fun resetCategory(key: String, p: Prefs): Prefs {
             lyricsOnline = d.lyricsOnline, lyricsSize = d.lyricsSize, lyricsWordMode = d.lyricsWordMode,
             lyricsAlign = d.lyricsAlign, lyricsColor = d.lyricsColor, lyricsDim = d.lyricsDim,
             lyricsSpacing = d.lyricsSpacing, lyricsBold = d.lyricsBold, lyricsZoom = d.lyricsZoom,
-            lyricsShiftMs = d.lyricsShiftMs,
+            lyricsShiftMs = d.lyricsShiftMs, lyricsOnDownload = d.lyricsOnDownload,
         )
         "playback" -> p.copy(
             skipSilence = d.skipSilence, pauseOnUnplug = d.pauseOnUnplug, restoreSession = d.restoreSession,
-            vinylSync = d.vinylSync,
+            vinylSync = d.vinylSync, replayGain = d.replayGain, rgPreamp = d.rgPreamp, fadeSec = d.fadeSec,
         )
         "library" -> p.copy(
             showListArt = d.showListArt, compactList = d.compactList, albumGrid = d.albumGrid, sortBy = d.sortBy,
             sortAsc = d.sortAsc, artistSplit = d.artistSplit, artistSeps = d.artistSeps, artistKeep = d.artistKeep,
-            smartTags = d.smartTags, minSeconds = d.minSeconds, excluded = d.excluded,
+            smartTags = d.smartTags, minSeconds = d.minSeconds, excluded = d.excluded, onlineImages = d.onlineImages,
         )
         "feel" -> p.copy(
             haptics = d.haptics, balance = d.balance, leftLevel = d.leftLevel, rightLevel = d.rightLevel,
@@ -189,6 +200,8 @@ fun SettingsScreen(
     onOpenEqualizer: () -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenDownloadSettings: () -> Unit,
+    onOpenStats: () -> Unit,
+    onOpenBackup: () -> Unit,
     bottomPad: Dp,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -199,6 +212,8 @@ fun SettingsScreen(
             "tool:eq" -> onOpenEqualizer()
             "tool:downloads" -> onOpenDownloads()
             "tool:dlsettings" -> onOpenDownloadSettings()
+            "tool:stats" -> onOpenStats()
+            "tool:backup" -> onOpenBackup()
             else -> onOpenCategory(target)
         }
     }
@@ -262,6 +277,12 @@ fun SettingsScreen(
                         Icons.Rounded.Settings, scheme.secondaryContainer, scheme.onSecondaryContainer) {
                         goTo("tool:dlsettings")
                     },
+                    CategoryTile("Listening stats", "Top songs, artists, time listened", Icons.Rounded.BarChart,
+                        scheme.primaryContainer, scheme.onPrimaryContainer) { goTo("tool:stats") },
+                )
+                TileRow(
+                    CategoryTile("Backup & restore", "Keep playlists and settings safe", Icons.Rounded.Backup,
+                        scheme.tertiaryContainer, scheme.onTertiaryContainer) { goTo("tool:backup") },
                     null,
                 )
 
@@ -614,7 +635,7 @@ private fun PlayerSettings(prefs: Prefs, onChange: ((Prefs) -> Prefs) -> Unit) {
     Group {
         Label("Progress bar")
         ConnectedChoice(
-            options = listOf("Wavy", "Flat"),
+            options = listOf("Wavy", "Flat", "Waveform"),
             selected = prefs.progressStyle,
             onSelect = { v -> onChange { it.copy(progressStyle = v) } },
         )
@@ -667,6 +688,14 @@ private fun LyricsSettings(prefs: Prefs, onChange: ((Prefs) -> Prefs) -> Unit) {
             checked = prefs.lyricsOnline,
             onChecked = { v -> onChange { it.copy(lyricsOnline = v) } },
         )
+        if (prefs.lyricsOnline) {
+            SwitchRow(
+                title = "Fetch lyrics for downloads",
+                subtitle = "After the downloader saves new songs, their lyrics are found and saved right away",
+                checked = prefs.lyricsOnDownload,
+                onChecked = { v -> onChange { it.copy(lyricsOnDownload = v) } },
+            )
+        }
         SliderRow(
             title = "Timing shift",
             valueText = "${if (prefs.lyricsShiftMs > 0) "+" else ""}${prefs.lyricsShiftMs} ms",
@@ -705,6 +734,35 @@ private fun PlaybackSettings(prefs: Prefs, onChange: ((Prefs) -> Prefs) -> Unit)
             onChecked = { v -> onChange { it.copy(restoreSession = v) } },
         )
     }
+
+    SectionTitle("Loudness and fades")
+    Group {
+        SwitchRow(
+            title = "Even out loudness",
+            subtitle = "Uses ReplayGain tags in your files so songs play at similar volume. Files without the tags stay as they are.",
+            checked = prefs.replayGain,
+            onChecked = { v -> onChange { it.copy(replayGain = v) } },
+        )
+        if (prefs.replayGain) {
+            SliderRow(
+                title = "ReplayGain preamp",
+                valueText = "${if (prefs.rgPreamp > 0.05f) "+" else ""}${String.format(Locale.US, "%.1f", prefs.rgPreamp)} dB",
+                value = prefs.rgPreamp,
+                range = -6f..6f,
+                steps = 23,
+                onChange = { v -> onChange { it.copy(rgPreamp = v) } },
+            )
+        }
+        SliderRow(
+            title = "Fade between songs",
+            valueText = if (prefs.fadeSec < 0.5f) "Off" else String.format(Locale.US, "%.0f s", prefs.fadeSec),
+            value = prefs.fadeSec,
+            range = 0f..12f,
+            steps = 11,
+            onChange = { v -> onChange { it.copy(fadeSec = v) } },
+        )
+        Hint("The end of a song fades out and the next one fades in. It is a dip in volume, the two songs do not overlap.")
+    }
 }
 
 @Composable
@@ -740,6 +798,15 @@ private fun LibrarySettings(prefs: Prefs, onChange: ((Prefs) -> Prefs) -> Unit) 
             subtitle = null,
             checked = prefs.sortAsc,
             onChecked = { v -> onChange { it.copy(sortAsc = v) } },
+        )
+    }
+
+    Group {
+        SwitchRow(
+            title = "Pictures from the internet",
+            subtitle = "Looks up artist photos and album covers (Deezer) when your files have none. Each picture is saved on the phone after the first download.",
+            checked = prefs.onlineImages,
+            onChecked = { v -> onChange { it.copy(onlineImages = v) } },
         )
     }
 

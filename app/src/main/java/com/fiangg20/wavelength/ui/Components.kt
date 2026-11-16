@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.fiangg20.wavelength.data.ArtLoader
+import com.fiangg20.wavelength.data.OnlineArt
 import com.fiangg20.wavelength.data.Prefs
 import com.fiangg20.wavelength.data.Track
 import java.util.Locale
@@ -230,7 +231,7 @@ fun ConnectedChoice(
                 Text(
                     text = label,
                     color = fg,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = if (options.size > 4) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -452,20 +453,27 @@ fun AlbumArtwork(
     modifier: Modifier,
     shape: Shape,
     px: Int = 256,
+    onlineArtist: String? = null,
+    onlineAlbum: String? = null,
 ) {
     val context = LocalContext.current.applicationContext
+    val online = LocalPrefs.current.onlineImages && onlineAlbum != null
     val first = tracks.firstOrNull()
     val bmp by produceState<Bitmap?>(
         if (first != null) ArtLoader.peek(first, px) else null,
         first?.id,
         tracks.size,
         px,
+        online,
+        onlineAlbum,
     ) {
         var found: Bitmap? = null
         for (t in tracks.take(8)) {
             found = ArtLoader.load(context, t, px)
             if (found != null) break
         }
+        // None of the songs has a cover of its own: ask the internet.
+        if (found == null && online) found = OnlineArt.album(context, onlineArtist ?: "", onlineAlbum ?: "")
         value = found
     }
     Box(
@@ -496,6 +504,50 @@ fun AlbumArtwork(
                         modifier = Modifier.fillMaxSize(0.42f),
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * An artist's picture from the internet. While there is none (or the setting is off) the
+ * [fallback] is shown instead, for example the artist's first letter.
+ */
+@Composable
+fun ArtistArtwork(
+    name: String,
+    modifier: Modifier,
+    shape: Shape,
+    px: Int = 300,
+    fallbackColor: Color = MaterialTheme.colorScheme.tertiaryContainer,
+    fallback: @Composable BoxScope.() -> Unit,
+) {
+    val context = LocalContext.current.applicationContext
+    val enabled = LocalPrefs.current.onlineImages
+    val bmp by produceState<Bitmap?>(null, name, enabled) {
+        value = if (enabled) OnlineArt.artist(context, name) else null
+    }
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(fallbackColor),
+        contentAlignment = Alignment.Center,
+    ) {
+        Crossfade(
+            targetState = bmp,
+            modifier = Modifier.fillMaxSize(),
+            animationSpec = tween(220),
+            label = "artistArt",
+        ) { b ->
+            if (b != null) {
+                Image(
+                    bitmap = b.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { fallback() }
             }
         }
     }

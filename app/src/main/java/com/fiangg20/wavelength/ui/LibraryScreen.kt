@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.FilterList
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -70,12 +71,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fiangg20.wavelength.data.Album
 import com.fiangg20.wavelength.data.Artist
+import com.fiangg20.wavelength.data.FolderUi
 import com.fiangg20.wavelength.data.Track
 
 // ---------------------------------------------------------------------------------------------
@@ -96,6 +99,7 @@ fun LibraryScreen(
     val tracks by vm.tracks.collectAsStateWithLifecycle()
     val albums by vm.albums.collectAsStateWithLifecycle()
     val artists by vm.artists.collectAsStateWithLifecycle()
+    val folders by vm.folders.collectAsStateWithLifecycle()
     val ui by vm.ui.collectAsStateWithLifecycle()
     val query by vm.search.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()
@@ -168,7 +172,7 @@ fun LibraryScreen(
         }
 
         ConnectedChoice(
-            options = listOf("Songs", "Albums", "Artists", "Playlists"),
+            options = listOf("Songs", "Albums", "Artists", "Playlists", "Folders"),
             selected = tab,
             onSelect = onTab,
             modifier = Modifier.padding(horizontal = 20.dp),
@@ -223,6 +227,7 @@ fun LibraryScreen(
                     onAddToPlaylist = onAddToPlaylist,
                 )
                 1 -> AlbumGrid(albums, bottomPad) { onOpenDetail("album:${it.id}") }
+                4 -> FolderList(folders, bottomPad) { onOpenDetail("folder:${it.path}") }
                 else -> ArtistList(artists, bottomPad) { onOpenDetail("artist:${it.name}") }
             }
         }
@@ -386,6 +391,9 @@ data class TrackActions(
     val onRemove: (() -> Unit)? = null,
     val onMoveUp: (() -> Unit)? = null,
     val onMoveDown: (() -> Unit)? = null,
+    val onEditInfo: (() -> Unit)? = null,
+    val removeLabel: String = "Remove from playlist",
+    val queueMode: Boolean = false, // inside the queue "play next" and "add to queue" move the song instead
 )
 
 @Composable
@@ -469,14 +477,14 @@ fun TrackRow(
     if (actions != null) {
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem(
-                text = { Text("Play next") },
+                text = { Text(if (actions.queueMode) "Move to play next" else "Play next") },
                 onClick = {
                     actions.onPlayNext()
                     menu = false
                 },
             )
             DropdownMenuItem(
-                text = { Text("Add to queue") },
+                text = { Text(if (actions.queueMode) "Move to end of queue" else "Add to queue") },
                 onClick = {
                     actions.onAddToQueue()
                     menu = false
@@ -522,10 +530,20 @@ fun TrackRow(
                     },
                 )
             }
+            val editInfo = actions.onEditInfo
+            if (editInfo != null) {
+                DropdownMenuItem(
+                    text = { Text("Edit info") },
+                    onClick = {
+                        editInfo()
+                        menu = false
+                    },
+                )
+            }
             val remove = actions.onRemove
             if (remove != null) {
                 DropdownMenuItem(
-                    text = { Text("Remove from playlist") },
+                    text = { Text(actions.removeLabel) },
                     onClick = {
                         remove()
                         menu = false
@@ -558,8 +576,9 @@ private fun AlbumGrid(albums: List<Album>, bottomPad: Dp, onClick: (Album) -> Un
         items(albums, key = { it.id }) { album ->
             Column(
                 Modifier
-                    .clip(MaterialTheme.shapes.large)
+                    .clip(RoundedCornerShape(12.dp))
                     .clickable { onClick(album) }
+                    .padding(bottom = 6.dp)
             ) {
                 AlbumArtwork(
                     tracks = album.tracks,
@@ -568,6 +587,8 @@ private fun AlbumGrid(albums: List<Album>, bottomPad: Dp, onClick: (Album) -> Un
                         .aspectRatio(1f),
                     shape = MaterialTheme.shapes.large,
                     px = 400,
+                    onlineArtist = album.artist,
+                    onlineAlbum = album.title,
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -591,6 +612,53 @@ private fun AlbumGrid(albums: List<Album>, bottomPad: Dp, onClick: (Album) -> Un
 }
 
 @Composable
+private fun FolderList(folders: List<FolderUi>, bottomPad: Dp, onClick: (FolderUi) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = bottomPad),
+    ) {
+        items(folders, key = { it.path }) { folder ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(MaterialTheme.shapes.large)
+                    .clickable { onClick(folder) }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(MaterialTheme.shapes.small)
+                        .background(scheme.secondaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.Folder, contentDescription = null, tint = scheme.onSecondaryContainer)
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        folder.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    val n = folder.tracks.size
+                    Text(
+                        "$n ${if (n == 1) "song" else "songs"} · ${folder.path}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ArtistList(artists: List<Artist>, bottomPad: Dp, onClick: (Artist) -> Unit) {
     val scheme = MaterialTheme.colorScheme
     LazyColumn(
@@ -608,12 +676,11 @@ private fun ArtistList(artists: List<Artist>, bottomPad: Dp, onClick: (Artist) -
             ) {
                 val initial = artist.name.firstOrNull { it.isLetterOrDigit() }
                     ?.uppercaseChar()?.toString() ?: "?"
-                Box(
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clip(CookieShape(8, 0.12f))
-                        .background(scheme.tertiaryContainer),
-                    contentAlignment = Alignment.Center,
+                ArtistArtwork(
+                    name = artist.name,
+                    modifier = Modifier.size(54.dp),
+                    shape = CookieShape(8, 0.12f),
+                    px = 160,
                 ) {
                     Text(
                         initial,
@@ -660,6 +727,8 @@ fun DetailScreen(
     onPlay: (Int) -> Unit,
     onPlayAll: () -> Unit,
     onShuffle: () -> Unit,
+    onlineArtist: String? = null,
+    onlineAlbum: String? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     val actionsFor = rememberTrackActions(vm, onAddToPlaylist)
@@ -694,12 +763,31 @@ fun DetailScreen(
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    AlbumArtwork(
-                        tracks = tracks,
-                        modifier = Modifier.size(132.dp),
-                        shape = if (isArtist) CookieShape(9, 0.1f) else MaterialTheme.shapes.large,
-                        px = 400,
-                    )
+                    if (isArtist) {
+                        ArtistArtwork(
+                            name = title,
+                            modifier = Modifier.size(132.dp),
+                            shape = CookieShape(9, 0.1f),
+                            px = 400,
+                            fallbackColor = scheme.secondaryContainer,
+                        ) {
+                            AlbumArtwork(
+                                tracks = tracks,
+                                modifier = Modifier.fillMaxSize(),
+                                shape = RectangleShape,
+                                px = 400,
+                            )
+                        }
+                    } else {
+                        AlbumArtwork(
+                            tracks = tracks,
+                            modifier = Modifier.size(132.dp),
+                            shape = MaterialTheme.shapes.large,
+                            px = 400,
+                            onlineArtist = onlineArtist,
+                            onlineAlbum = onlineAlbum,
+                        )
+                    }
                     Spacer(Modifier.width(16.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
