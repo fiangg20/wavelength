@@ -71,7 +71,7 @@ fun EqualizerScreen(onBack: () -> Unit, bottomPad: Dp) {
                         selected = s.preset,
                         onSelect = { AudioFx.setPreset(it) },
                     )
-                    if (s.preset == -1) Hint("Custom curve (lol)")
+                    if (s.preset == -1) Hint("Custom curve")
                 }
 
                 SectionTitle("Bands")
